@@ -15,7 +15,7 @@ The primary validation setting is a matched-backbone comparison under our own im
 \subsection{Main Results}
 \label{sec:exp_main}
 
-The central comparison is between the matched baseline and the proposed model under identical encoder and training settings. This comparison isolates whether train-time temporal denoising improves transfer to zero-shot surgical understanding.
+The central comparison is between the matched baseline and the proposed model under identical encoder and training settings. This comparison isolates whether train-time temporal denoising and hierarchical anchoring improve transfer to zero-shot surgical understanding.
 
 Literature baselines are included for context, but they are not the foundation of the method claim because they differ in data sources, encoders, optimization details, or all three. The strongest claim of the paper should therefore come from the matched-backbone comparison, while cross-paper baselines position the final system in the broader landscape.
 
@@ -168,13 +168,16 @@ Triplet & CholecT50 & mAP & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
 \subsection{Diagnostic Analysis}
 \label{sec:exp_qualitative}
 
-Because the paper is motivated by temporal imprecision in weak intervals, diagnostics should directly test whether the proposed model is selecting more credible frame evidence than the baseline. We therefore recommend three types of analysis.
+Because the paper is motivated by temporal imprecision in weak intervals and by underused cross-level relations, diagnostics should directly test whether the proposed model is selecting more credible frame evidence and whether hierarchical anchoring behaves as intended. We therefore recommend four types of analysis.
 
 \paragraph{Qualitative frame-weight maps.}
 Visualize sampled frames within the expanded temporal neighborhood together with their soft selection weights. Representative examples should include both successful denoising cases and failure cases where distracting context remains dominant.
 
 \paragraph{Frame concentration statistics.}
 Report summaries such as frame-weight entropy, peak frame weight, and the relative concentration patterns of fine-, mid-, and coarse-level supervision. These quantities are model diagnostics, not standalone claims about the dataset.
+
+\paragraph{Cross-level anchor consistency.}
+For batches containing fine-mid-coarse triplets, report how much the cosine similarity between $v^{m}_{\text{sel}}$ or $v^{c}_{\text{sel}}$ and the reused fine anchor increases after training, relative to the baseline. Qualitative case studies can further show whether the selected mid/coarse views preserve the local semantics emphasized by the fine caption.
 
 \paragraph{Noise robustness.}
 Perturb the weak timestamps in a controlled way and compare how rapidly the matched baseline and the proposed model degrade. Such analysis directly tests whether train-time window denoising is more robust to weak temporal supervision noise than uniform clip-level alignment.
