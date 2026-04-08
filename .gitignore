@@ -1,0 +1,30 @@
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.xdv
+*.synctex.gz
+
+# PDF files
+main.pdf
+main_miccai.pdf
+
+# Temporary folders
+_minted*
+*.pyg
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Zone.Identifier files
+*:Zone.Identifier
