@@ -1,7 +1,7 @@
 \section{Method}
 \label{sec:method}
 
-Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. In addition, hierarchical fine/mid/coarse annotations should not be used only as extra independent pairs; their nested relations can provide structured supervision during training. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising with hierarchical set alignment}: training explicitly denoises temporally imprecise positives within each sample and aligns each coarse-grained parent with a weighted set of finer-grained child semantics, while test-time inference remains standard CLIP.
+Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. In addition, hierarchical fine/mid/coarse annotations should not be used only as extra independent pairs; their nested relations can provide structured supervision during training. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising with hierarchical anchoring}: training explicitly denoises temporally imprecise positives within each sample and regularizes each coarse-grained parent with all visible finer-grained child captions in the batch, while test-time inference remains standard CLIP.
 
 Conceptually, the first part of our design is related to multiple-instance learning and text-guided weak temporal localization. A weak interval is closer to a partially positive bag than to a uniformly positive set of frames~\cite{dietterich1997mil,ilse2018attentionmil,li2023boostingwtal,hu2024mmplateau,li2024fps}. The second part is related to hierarchical video-language learning, where finer-grained descriptions can provide stronger temporal grounding than broader summaries~\cite{ye2023hitea,hecvl2024}. Our method combines these ideas in a deliberately restricted way: all additional mechanisms are used only during training, and test-time inference remains unchanged.
 
@@ -10,7 +10,7 @@ Conceptually, the first part of our design is related to multiple-instance learn
 
 Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives and hierarchical annotations are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip.
 
-Hierarchy enters training in two complementary ways. First, the selection temperature is level-dependent, which reflects the fact that fine-, mid-, and coarse-level captions correspond to different evidence granularities. Second, when hierarchical set alignment is enabled, each mixed-level batch is organized so that multiple valid parent-child relations are visible at once. For every mid/coarse parent, we collect the set of fine captions nested inside it, interpret these captions as local semantic atoms, and regularize the parent against this weighted child set rather than against a single reused anchor. During inference, however, we discard all training-only denoising and hierarchical set alignment logic and use standard CLIP-style video and text encoders exactly as usual.
+Hierarchy enters training in two complementary ways. First, the selection temperature is level-dependent, which reflects the fact that fine-, mid-, and coarse-level captions correspond to different evidence granularities. Second, when hierarchical anchoring is enabled, each mixed-level batch guarantees at least one explicit fine-mid-coarse chain. Under this structured batch composition, additional fine captions nested inside the same mid/coarse parent may also become visible, and we use all such batch-visible fine captions as multi-positive local anchors for the parent selected representation. During inference, however, we discard all training-only denoising and hierarchical anchoring logic and use standard CLIP-style video and text encoders exactly as usual.
 
 \subsection{Problem Setup and CLIP Baseline}
 \label{sec:method_setup}
@@ -120,9 +120,9 @@ However, hierarchy in our final formulation does more than modulate this tempera
 \subsection{Structured Hierarchical Batch Construction}
 \label{sec:method_triplet}
 
-SurgLaVi-style data provides fine-, mid-, and coarse-level annotations that are temporally nested within the same video. If these annotations are simply flattened into a training pool, the model sees more samples but not necessarily more explicit cross-level supervision. To turn hierarchy into a supervision structure, we construct mixed-level training batches that preserve both level diversity and as many valid parent-child relations as possible.
+SurgLaVi-style data provides fine-, mid-, and coarse-level annotations that are temporally nested within the same video. If these annotations are simply flattened into a training pool, the model sees more samples but not necessarily more explicit cross-level supervision. To turn hierarchy into a supervision structure, we construct mixed-level training batches that preserve both level diversity and at least one explicit fine-mid-coarse relation.
 
-Concretely, each batch follows a user-defined level composition, for example $N_f$, $N_m$, and $N_c$ samples from the fine, mid, and coarse levels. Within this level-balanced batch, we identify every valid parent-child relation that is visible under temporal nesting. For a parent sample
+Concretely, each batch follows a user-defined level composition, for example $N_f$, $N_m$, and $N_c$ samples from the fine, mid, and coarse levels. We additionally guarantee that every batch contains at least one nested fine-mid-coarse chain. Beyond this explicit chain, additional valid parent-child relations may also appear inside the same batch. For a parent sample
 \begin{equation}
 p = (V, [t_s^p,t_e^p], y^p, \ell_p), \qquad \ell_p \in \{m,c\},
 \end{equation}
@@ -130,47 +130,28 @@ we define its batch-visible child set as
 \begin{equation}
 \mathcal{C}(p) = \{ f_j \mid [t_s^{f_j}, t_e^{f_j}] \subseteq [t_s^p, t_e^p],\; \ell_{f_j}=f \}.
 \end{equation}
-Thus, a coarse sample may be associated with multiple fine captions, and a mid sample may also contain multiple fine captions. This design guarantees that each optimization step observes not just one isolated triplet, but a set of explicit cross-level relations.
+Thus, a coarse sample may be associated with multiple fine captions, and a mid sample may also contain multiple fine captions. This design guarantees at least one explicit cross-level relation per optimization step while allowing additional visible child anchors to contribute when they co-occur in the batch.
 
-\subsection{Hierarchical Set Alignment}
+\subsection{Multi-Positive Hierarchical Anchoring}
 \label{sec:method_anchor}
 
-The motivation for cross-level regularization is simple: fine captions are temporally sharper and semantically more local than the mid/coarse summaries that contain them. We therefore treat the child fine captions under a parent as a weighted semantic set rather than as interchangeable independent positives. Intuitively, a parent caption should not collapse to one child, nor should all children contribute equally. Instead, the parent should preserve a weighted combination of the local semantics expressed by its nested fine captions.
+The motivation for cross-level regularization is simple: fine captions are temporally sharper and semantically more local than the mid/coarse summaries that contain them. We therefore treat all batch-visible child fine captions under a parent as multi-positive local anchors. Intuitively, a parent should not be forced to match one arbitrarily chosen fine caption, because mid/coarse summaries usually cover multiple finer-grained events. At the same time, we avoid a heavier set-composition model and instead use a lightweight multi-positive contrastive constraint.
 
-For each parent $p$, we assign a nonnegative weight to every visible child $f_j \in \mathcal{C}(p)$:
-\begin{equation}
-\omega_{p,j} = r_{p,j} \cdot c_{j},
-\end{equation}
-where $r_{p,j}$ denotes the temporal overlap ratio between $f_j$ and the parent interval, and $c_j$ denotes an optional fine-level confidence term. In the simplest case, $c_j=1$ and only temporal support is used. These raw weights are normalized into a child-set target distribution
-\begin{equation}
-q_{p,j} = \frac{\omega_{p,j}}{\sum_{f_k \in \mathcal{C}(p)} \omega_{p,k}}.
-\end{equation}
-
-Let $v^{p}_{\text{sel}}$ denote the selected visual embedding of the parent, let $t^{f_j}$ denote the text embedding of child $f_j$, and let $\mathcal{T}$ denote the in-batch text bank. We first define a text-side set alignment objective
+Let $v^{p}_{\text{sel}}$ denote the selected visual embedding of the parent, let $t^{f_j}$ denote the text embedding of child $f_j$, and let $\mathcal{T}$ denote the in-batch text bank. We define
 \begin{equation}
 P(t_i \mid v^{p}_{\text{sel}}) = \frac{\exp(s(v^{p}_{\text{sel}}, t_i))}{\sum_{t_k \in \mathcal{T}} \exp(s(v^{p}_{\text{sel}}, t_k))},
 \end{equation}
-and optimize the soft multi-positive loss
+and optimize the multi-positive anchoring loss
 \begin{equation}
-\mathcal{L}^{\text{text}}_{\text{hsa}}(p) = - \sum_{f_j \in \mathcal{C}(p)} q_{p,j} \log P(t^{f_j} \mid v^{p}_{\text{sel}}).
+\ell_{\text{htg}}(p) = - \frac{1}{|\mathcal{C}(p)|} \sum_{f_j \in \mathcal{C}(p)} \log P(t^{f_j} \mid v^{p}_{\text{sel}}).
 \end{equation}
-This term encourages the denoised parent representation to cover the set of finer-grained semantics nested inside it rather than overfitting to a single child anchor.
+This term encourages the denoised parent representation to preserve all finer-grained semantics visible inside the batch rather than overfitting to a single child anchor or drifting toward only broad procedural context.
 
-We additionally align hierarchy in the video embedding space. Let $v^{f_j}_{\text{sel}}$ denote the selected visual embedding of each child fine sample. We aggregate the child set into a video-side prototype
+The final hierarchical anchoring term sums over all batch-visible parents with at least one child:
 \begin{equation}
-\bar v^{\text{fine}}_{p} = \sum_{f_j \in \mathcal{C}(p)} q_{p,j} v^{f_j}_{\text{sel}},
+\mathcal{L}_{\text{htg}} = \sum_{p : |\mathcal{C}(p)| > 0} \ell_{\text{htg}}(p).
 \end{equation}
-and define a video-side consistency term
-\begin{equation}
-\mathcal{L}^{\text{video}}_{\text{hsa}}(p) = 1 - \cos\left(v^{p}_{\text{sel}}, \bar v^{\text{fine}}_{p}\right).
-\end{equation}
-This term prevents the hierarchy from being enforced only through text matching. Instead, it explicitly encourages the parent selected representation to remain consistent with the visual evidence carried by its child fine set.
-
-The final hierarchical set alignment term sums over all batch-visible parents with at least one child:
-\begin{equation}
-\mathcal{L}_{\text{hsa}} = \sum_{p : |\mathcal{C}(p)| > 0} \left( \mathcal{L}^{\text{text}}_{\text{hsa}}(p) + \mathcal{L}^{\text{video}}_{\text{hsa}}(p) \right).
-\end{equation}
-Compared with a single-anchor regularizer, this design is stronger in two ways: it uses all valid cross-level relations visible within the batch, and it models the parent as a weighted summary of a child set rather than as a match to one arbitrarily chosen fine caption.
+Compared with a single-anchor regularizer, this design is stronger because it uses all valid child fine captions visible for a parent inside the batch, while remaining much lighter than full hierarchical set composition.
 
 \subsection{Training Objective and Test-Time Inference}
 \label{sec:method_objective}
@@ -196,12 +177,12 @@ The final objective is
 \mathcal{L} =
 \mathcal{L}_{\text{base}} +
 \lambda_{\text{sel}} \mathcal{L}_{\text{sel}} +
-\lambda_{\text{hsa}} \mathcal{L}_{\text{hsa}},
+\lambda_{\text{htg}} \mathcal{L}_{\text{htg}},
 \end{equation}
-where $\lambda_{\text{sel}}$ controls the denoised auxiliary view and $\lambda_{\text{hsa}}$ controls the strength of hierarchical set alignment.
+where $\lambda_{\text{sel}}$ controls the denoised auxiliary view and $\lambda_{\text{htg}}$ controls the strength of hierarchical anchoring.
 
-This formulation resolves two practical issues at once. The denoised selected view reduces the effect of temporally noisy positives within each sample, while hierarchical set alignment injects an explicit cross-level consistency signal that would be lost if hierarchical annotations were flattened into independent pairs. Yet test-time evaluation remains standard CLIP-style encoding:
+This formulation resolves two practical issues at once. The denoised selected view reduces the effect of temporally noisy positives within each sample, while hierarchical anchoring injects an explicit cross-level consistency signal that would be lost if hierarchical annotations were flattened into independent pairs. Yet test-time evaluation remains standard CLIP-style encoding:
 \begin{equation}
 v = \operatorname{encode\_image}(c), \qquad t = \operatorname{encode\_text}(y),
 \end{equation}
-followed by standard similarity scoring. All denoising and hierarchical set alignment mechanisms are therefore training-time supervision rules rather than new test-time retrieval procedures.
+followed by standard similarity scoring. All denoising and hierarchical anchoring mechanisms are therefore training-time supervision rules rather than new test-time retrieval procedures.
