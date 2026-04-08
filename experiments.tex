@@ -1,0 +1,180 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental Setup}
+\label{sec:exp_data}
+
+We adopt SurgLaVi / SurgLaVi-Beta as the pretraining resource and preserve its weakly supervised training protocol. Each sample consists of a video interval with hierarchical textual annotations. In our implementation, every sample uses its own paired caption for frame selection and contrastive alignment, while hierarchy is additionally exploited through structured mixed-level batches that contain at least one nested fine-mid-coarse triplet.
+
+Our downstream target is zero-shot surgical workflow recognition. To avoid drawing conclusions from a single coarse task, we evaluate on the broader SurgLaVi-style suite covering phase, step, action, tool, and triplet recognition. This evaluation setting is important for our method because train-time temporal denoising is expected to matter most when downstream recognition depends on fine-grained local semantics rather than only broad workflow context.
+
+The baseline is a CLIP-style dual-encoder pretraining framework. From each annotated interval, we sample multiple frames, encode them with a domain-pretrained frame encoder, aggregate them with a lightweight temporal head, and align the resulting clip embedding with the paired caption through bidirectional contrastive learning. Our method keeps the same backbone and optimization recipe, but replaces uniform interval-level trust with train-time window denoising and adds a lightweight hierarchical anchoring loss on structured fine-mid-coarse triplets. Unless otherwise stated, the default configuration uses eight frames per training clip, a window expansion ratio of 1.5, a local alignment temperature of 0.15, level-aware selection temperatures of 0.35/0.8/1.6 for fine/mid/coarse supervision, an auxiliary selection loss weight of 0.7, and a hierarchical anchoring loss weight of 0.1.
+
+The primary validation setting is a matched-backbone comparison under our own implementation. The baseline and the proposed model use the same pretraining data, visual encoder, text encoder, projection heads, and training schedule; the proposed model differs only in how weak supervision is consumed during training through window denoising and hierarchical anchoring. We additionally report a broader literature-positioning table for context, but the strongest method claim comes from the matched-backbone comparison.
+
+\subsection{Main Results}
+\label{sec:exp_main}
+
+The central comparison is between the matched baseline and the proposed model under identical encoder and training settings. This comparison isolates whether train-time temporal denoising improves transfer to zero-shot surgical understanding.
+
+Literature baselines are included for context, but they are not the foundation of the method claim because they differ in data sources, encoders, optimization details, or all three. The strongest claim of the paper should therefore come from the matched-backbone comparison, while cross-paper baselines position the final system in the broader landscape.
+
+We first report a matched-backbone comparison under our own implementation. In this table, the baseline and the proposed model share the same pretraining corpus, visual encoder, text encoder, temporal head, optimizer, and zero-shot evaluation protocol. Only the training rule changes from uniform interval-level alignment to train-time window denoising with structured hierarchical anchoring.
+
+\begin{table}[t]
+\centering
+\caption{Primary matched-backbone comparison under our implementation. This table should serve as the main evidence for the method claim because it isolates the effect of train-time window denoising and hierarchical anchoring from backbone and data changes.}
+\label{tab:matched_backbone_main}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lllccc}
+\toprule
+Recognition Task & Dataset & Metric & Matched Baseline & Ours & $\Delta$ \\
+\midrule
+\multirow{12}{*}{Phase}
+& \multirow{2}{*}{Cholec80} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+& \multirow{2}{*}{AutoLaparo} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+& \multirow{2}{*}{StrasBypass70} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+& \multirow{2}{*}{HeiChole} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+& \multirow{2}{*}{BernBypass70} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+\midrule
+\multirow{2}{*}{Step}
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+\midrule
+\multirow{2}{*}{Action}
+& \multirow{2}{*}{SARRARP50} & Acc & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD \\
+\midrule
+Triplet & CholecT50 & mAP & TBD & TBD & TBD \\
+\midrule
+\multirow{3}{*}{Tool}
+& Cholec80 & mAP & TBD & TBD & TBD \\
+& HeiChole & mAP & TBD & TBD & TBD \\
+& GraSP & mAP & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+Table~\ref{tab:main_surglavi_style} follows the broader SurgLaVi-style downstream protocol. We retain the broader literature comparison because it reflects the multi-task benchmark layout that recent surgical VLP papers use in practice. At the same time, the paper text should make clear that the strongest method claim still comes from matched-backbone comparisons under our own implementation.
+
+\begin{table}[t]
+\centering
+\caption{Main zero-shot downstream evaluation, following the broader SurgLaVi-style benchmark layout. Literature baselines are cited under their reported protocol, and the final column is reserved for the proposed method. Matched-backbone comparisons remain the primary evidence for the method claim.}
+\label{tab:main_surglavi_style}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lllcccccccc}
+\toprule
+Recognition Task & Dataset & Metric & CLIP & MedSigLIP & SurgVLP & HecVL & PeskaVLP & SurgCLIP($\beta$) & SurgCLIP & Ours \\
+\midrule
+\multirow{12}{*}{Phase}
+& \multirow{2}{*}{Cholec80} & Acc & 27.81$\pm$10.4 & 40.94$\pm$1.14 & 49.02$\pm$10.6 & 47.50$\pm$11.0 & 51.43$\pm$11.01 & 57.98$\pm$5.25 & 61.29$\pm$10.7 & TBD \\
+&  & F1 & 8.42$\pm$2.81 & 18.74$\pm$4.42 & 32.46$\pm$6.43 & 23.89$\pm$5.53 & 39.39$\pm$7.43 & 39.42$\pm$5.25 & 50.53$\pm$8.83 & TBD \\
+& \multirow{2}{*}{AutoLaparo} & Acc & 8.02$\pm$3.43 & 26.54$\pm$5.39 & 10.02$\pm$5.23 & 38.72$\pm$7.01 & 34.94$\pm$9.06 & 55.72$\pm$7.65 & 69.14$\pm$5.98 & TBD \\
+&  & F1 & 4.79$\pm$1.77 & 10.17$\pm$3.24 & 7.19$\pm$4.15 & 25.81$\pm$4.91 & 28.41$\pm$7.79 & 45.95$\pm$8.10 & 56.37$\pm$4.54 & TBD \\
+& \multirow{2}{*}{StrasBypass70} & Acc & 18.52$\pm$5.99 & 20.15$\pm$3.98 & 26.08$\pm$6.30 & 28.59$\pm$8.52 & 29.42$\pm$6.92 & 31.24$\pm$6.88 & 32.37$\pm$6.30 & TBD \\
+&  & F1 & 3.51$\pm$1.12 & 5.54$\pm$1.15 & 19.18$\pm$4.30 & 23.91$\pm$6.60 & 19.64$\pm$3.97 & 26.05$\pm$4.39 & 30.78$\pm$5.37 & TBD \\
+& \multirow{2}{*}{Heichole} & Acc & 19.21$\pm$5.27 & 45.36$\pm$10.7 & 45.70$\pm$10.7 & 29.91$\pm$12.9 & 53.33$\pm$8.47 & 56.95$\pm$17.59 & 63.84$\pm$15.4 & TBD \\
+&  & F1 & 6.17$\pm$2.43 & 17.63$\pm$3.24 & 27.04$\pm$3.92 & 22.76$\pm$7.21 & 36.46$\pm$4.43 & 44.00$\pm$7.68 & 55.15$\pm$8.9 & TBD \\
+& \multirow{2}{*}{BernBypass70} & Acc & 20.73$\pm$9.14 & 30.73$\pm$8.13 & 30.46$\pm$6.55 & 32.09$\pm$8.41 & 31.48$\pm$8.60 & 18.30$\pm$6.68 & 23.90$\pm$6.58 & TBD \\
+&  & F1 & 4.17$\pm$1.23 & 6.14$\pm$1.34 & 17.48$\pm$2.93 & 18.58$\pm$5.00 & 17.47$\pm$5.25 & 15.06$\pm$5.54 & 19.68$\pm$5.78 & TBD \\
+& \multirow{2}{*}{GraSP} & Acc & 9.93$\pm$4.79 & 12.88$\pm$7.20 & 11.79$\pm$2.89 & 10.99$\pm$2.99 & 13.85$\pm$3.45 & 34.77$\pm$8.15 & 41.49$\pm$7.87 & TBD \\
+&  & F1 & 2.06$\pm$0.57 & 4.84$\pm$2.30 & 6.07$\pm$1.71 & 6.46$\pm$2.87 & 9.86$\pm$3.14 & 27.98$\pm$6.53 & 34.94$\pm$7.61 & TBD \\
+\midrule
+\multirow{2}{*}{Step}
+& \multirow{2}{*}{GraSP} & Acc & 3.85$\pm$2.72 & 11.53$\pm$6.63 & 6.02$\pm$1.11 & 1.96$\pm$1.54 & 3.65$\pm$1.85 & 14.15$\pm$3.92 & 26.28$\pm$7.29 & TBD \\
+&  & F1 & 0.83$\pm$0.61 & 1.86$\pm$1.01 & 3.22$\pm$0.25 & 0.56$\pm$0.38 & 2.47$\pm$0.80 & 11.14$\pm$4.16 & 16.53$\pm$5.44 & TBD \\
+\midrule
+\multirow{2}{*}{Action}
+& \multirow{2}{*}{SARRARP50} & Acc & 28.8$\pm$3.85 & 5.49$\pm$3.24 & 17.91$\pm$2.86 & 4.67$\pm$3.09 & 5.18$\pm$3.95 & 13.94$\pm$8.18 & 17.42$\pm$7.08 & TBD \\
+&  & F1 & 6.28$\pm$1.14 & 3.17$\pm$1.75 & 7.03$\pm$1.99 & 3.03$\pm$2.43 & 2.68$\pm$1.87 & 7.62$\pm$2.91 & 7.76$\pm$2.71 & TBD \\
+\midrule
+Triplet & CholecT50 & mAP & 2.50 & 2.98 & 3.04 & 3.63 & 4.49 & 4.17 & 5.28 & TBD \\
+\midrule
+\multirow{3}{*}{Tool}
+& Cholec80 & mAP & 18.44 & 17.92 & 31.19 & 25.11 & 38.88 & 36.77 & 40.80 & TBD \\
+& Heichole & mAP & 21.18 & 20.58 & 22.46 & 19.36 & 32.82 & 31.47 & 36.79 & TBD \\
+& GraSP & mAP & 36.00 & 37.18 & 36.93 & 36.75 & 41.05 & 43.06 & 45.97 & TBD \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsection{Ablation Study}
+\label{sec:exp_ablation}
+
+The ablation study should follow the same downstream evaluation suite while replacing cross-paper baselines with progressively stronger internal variants. The most important ablation question is not whether the full model is better than a generic literature baseline, but which parts of the train-time temporal denoising and hierarchical anchoring pipeline are actually responsible for the gains.
+
+We therefore recommend the following progression:
+\begin{enumerate}[leftmargin=*]
+    \item matched CLIP-style baseline with uniform clip-text alignment;
+    \item baseline + expanded training window;
+    \item baseline + text-guided soft frame selection;
+    \item baseline + denoised auxiliary contrastive branch;
+    \item baseline + level-aware evidence granularity;
+    \item baseline + structured triplet batches;
+    \item full model.
+\end{enumerate}
+
+\begin{table}[t]
+\centering
+\caption{Ablation study using the same benchmark and metric layout as the main zero-shot evaluation. The table isolates the effects of expanded training windows, text-guided soft frame selection, denoised auxiliary alignment, level-aware evidence granularity, and structured hierarchical anchoring under a fixed evaluation suite.}
+\label{tab:ablation_multitask}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lllccccccc}
+\toprule
+Recognition Task & Dataset & Metric & Baseline & + Win. Exp. & + Soft Sel. & + Aux. Loss & + Level Prior & + Triplet & Full \\
+\midrule
+\multirow{12}{*}{Phase}
+& \multirow{2}{*}{Cholec80} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& \multirow{2}{*}{AutoLaparo} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& \multirow{2}{*}{StrasBypass70} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& \multirow{2}{*}{Heichole} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& \multirow{2}{*}{BernBypass70} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+\midrule
+\multirow{2}{*}{Step}
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+\midrule
+\multirow{2}{*}{Action}
+& \multirow{2}{*}{SARRARP50} & Acc & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+\midrule
+Triplet & CholecT50 & mAP & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+\midrule
+\multirow{3}{*}{Tool}
+& Cholec80 & mAP & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& Heichole & mAP & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+& GraSP & mAP & TBD & TBD & TBD & TBD & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsection{Diagnostic Analysis}
+\label{sec:exp_qualitative}
+
+Because the paper is motivated by temporal imprecision in weak intervals, diagnostics should directly test whether the proposed model is selecting more credible frame evidence than the baseline. We therefore recommend three types of analysis.
+
+\paragraph{Qualitative frame-weight maps.}
+Visualize sampled frames within the expanded temporal neighborhood together with their soft selection weights. Representative examples should include both successful denoising cases and failure cases where distracting context remains dominant.
+
+\paragraph{Frame concentration statistics.}
+Report summaries such as frame-weight entropy, peak frame weight, and the relative concentration patterns of fine-, mid-, and coarse-level supervision. These quantities are model diagnostics, not standalone claims about the dataset.
+
+\paragraph{Noise robustness.}
+Perturb the weak timestamps in a controlled way and compare how rapidly the matched baseline and the proposed model degrade. Such analysis directly tests whether train-time window denoising is more robust to weak temporal supervision noise than uniform clip-level alignment.

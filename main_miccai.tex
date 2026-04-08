@@ -1,0 +1,41 @@
+\documentclass[runningheads]{llncs}
+
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{Train-Time Window Denoising for Weakly Supervised Surgical Video-Language Pretraining}
+\titlerunning{Train-Time Window Denoising for Surgical VLP}
+\author{Anonymized Authors}
+\authorrunning{Anonymized Authors}
+\institute{Anonymized Institution\\
+\email{anonymized@email.com}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Weakly supervised surgical video-language pretraining is a promising route for zero-shot surgical understanding, but most CLIP-style pipelines still align a caption with a pooled embedding from a timestamped interval as if all sampled frames inside that interval were equally reliable positives. In surgical videos, this assumption is often too strong: the visual evidence that supports a caption may only occupy a subset of local frames and can be slightly shifted with respect to the annotated temporal boundary. Hierarchical annotations are also often flattened into ordinary clip-caption pairs, leaving fine-mid-coarse relations underused during training. We address these issues with a train-time window denoising framework with hierarchical anchoring. During training, each weak interval is treated as a noisy temporal anchor, expanded into a small local neighborhood, and softly reweighted by the paired text to produce a denoised visual training view. We additionally structure each mixed-level batch to contain at least one nested fine-mid-coarse triplet and reuse the fine caption as a local semantic anchor for regularizing denoised mid/coarse representations, without adding extra text-encoder passes. Test-time inference remains standard CLIP-style independent encoding of video and text. This design directly targets temporal imprecision and cross-level supervision underuse while preserving the simplicity and scalability of standard dual-encoder inference.
+
+\keywords{Surgical video-language pretraining \and Weak supervision \and Temporal denoising \and Zero-shot surgical understanding}
+\end{abstract}
+
+\input{introduction}
+\input{related_work}
+\input{method}
+\input{experiments}
+\input{conclusion}
+
+\bibliographystyle{splncs04}
+\bibliography{related_work_refs}
+
+\end{document}

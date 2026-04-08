@@ -1,0 +1,190 @@
+\section{Method}
+\label{sec:method}
+
+Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. In addition, hierarchical fine/mid/coarse annotations should not be used only as extra independent pairs; their nested relations can provide structured supervision during training. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising with hierarchical anchoring}: training explicitly denoises temporally imprecise positives within each sample and exploits one explicit fine-mid-coarse relation per batch, while test-time inference remains standard CLIP.
+
+Conceptually, the first part of our design is related to multiple-instance learning and text-guided weak temporal localization. A weak interval is closer to a partially positive bag than to a uniformly positive set of frames~\cite{dietterich1997mil,ilse2018attentionmil,li2023boostingwtal,hu2024mmplateau,li2024fps}. The second part is related to hierarchical video-language learning, where finer-grained descriptions can provide stronger temporal grounding than broader summaries~\cite{ye2023hitea,hecvl2024}. Our method combines these ideas in a deliberately restricted way: all additional mechanisms are used only during training, and test-time inference remains unchanged.
+
+\subsection{Method Overview}
+\label{sec:method_overview}
+
+Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives and hierarchical annotations are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip.
+
+Hierarchy enters training in two complementary ways. First, the selection temperature is level-dependent, which reflects the fact that fine-, mid-, and coarse-level captions correspond to different evidence granularities. Second, when hierarchical anchoring is enabled, each mixed-level batch contains at least one temporally nested fine-mid-coarse triplet. The fine caption in that triplet is reused as a local semantic anchor for the enclosing mid/coarse samples. Importantly, this anchor is taken from the batch itself, so no additional text-encoder pass is introduced. During inference, however, we discard all training-only denoising and hierarchical anchoring logic and use standard CLIP-style video and text encoders exactly as usual.
+
+\subsection{Problem Setup and CLIP Baseline}
+\label{sec:method_setup}
+
+Each training sample is written as
+\begin{equation}
+(V, [t_s, t_e], y, \ell),
+\end{equation}
+where $V$ denotes a surgical video, $[t_s, t_e]$ is the annotated time interval, $y$ is the paired caption, and $\ell \in \{f,m,c\}$ indicates whether the caption comes from the fine, mid, or coarse annotation level. Across the dataset, samples from the same video may form temporally nested fine-mid-coarse chains, but the baseline CLIP pipeline ignores these relations and simply treats all samples as independent clip-caption pairs.
+
+Let $E_v(\cdot)$ and $E_t(\cdot)$ denote the visual and textual backbones, let $A_v(\cdot)$ denote the temporal aggregation head, and let $P_v(\cdot)$ and $P_t(\cdot)$ denote the projection heads. In the baseline, frames are sampled from the annotated interval to form a multi-frame clip
+\begin{equation}
+c = \{x_1, x_2, \dots, x_M\},
+\end{equation}
+from which per-frame features are extracted as
+\begin{equation}
+h_j = E_v(x_j), \qquad j=1,\dots,M.
+\end{equation}
+These frame features are temporally aggregated into a clip representation
+\begin{equation}
+h_{\text{base}} = A_v(h_1, h_2, \dots, h_M),
+\end{equation}
+and projected into the shared embedding space as
+\begin{equation}
+v_{\text{base}} = \operatorname{norm}(P_v(h_{\text{base}})), \qquad
+t = \operatorname{norm}(P_t(E_t(y))).
+\end{equation}
+Standard CLIP-style training then optimizes a symmetric InfoNCE objective
+\begin{equation}
+\mathcal{L}_{\text{base}} =
+\mathcal{L}_{v \rightarrow t}(v_{\text{base}}, t) +
+\mathcal{L}_{t \rightarrow v}(t, v_{\text{base}}).
+\end{equation}
+
+This formulation is effective but implicitly assumes that the sampled interval provides a uniformly reliable positive visual representation for the paired text. Our method relaxes this assumption without replacing the underlying CLIP-style architecture.
+
+\subsection{Train-Time Local Temporal Expansion}
+\label{sec:method_expand}
+
+Because weak timestamps may be locally imprecise, we first expand the annotated interval into a bounded local neighborhood during training:
+\begin{equation}
+[t_s', t_e'] = \operatorname{Expand}([t_s, t_e]; \rho),
+\end{equation}
+where $\rho \geq 1$ is a window expansion ratio and the expanded interval is clipped to the valid video duration. We then sample a multi-frame clip
+\begin{equation}
+c_{\text{exp}} = \{x'_1, x'_2, \dots, x'_M\}
+\end{equation}
+from the expanded interval using the same frame sampling budget as the baseline.
+
+The expanded clip is encoded by the same visual backbone and temporal head:
+\begin{equation}
+z_{\text{exp}}, \{h'_1,\dots,h'_M\} = A_v(E_v(c_{\text{exp}})),
+\end{equation}
+where $z_{\text{exp}}$ is the global pooled feature and $h'_j$ are frame-level tokens. The global visual embedding used by the main branch is
+\begin{equation}
+v_{\text{base}} = \operatorname{norm}(P_v(z_{\text{exp}})).
+\end{equation}
+
+The purpose of expansion is not to solve full temporal grounding. It is simply to expose a slightly wider temporal neighborhood around a noisy timestamp so that supportive frames near the interval boundary are still available during training.
+
+\subsection{Text-Guided Soft Frame Selection}
+\label{sec:method_selection}
+
+We next estimate how much each frame in the expanded clip supports the paired caption. Let
+\begin{equation}
+\{w_1,\dots,w_L\} = E_t(y)
+\end{equation}
+denote the token features of the paired caption. We introduce lightweight local projection heads $Q_v(\cdot)$ and $Q_t(\cdot)$ for frame-token alignment, and compute a frame-token similarity map
+\begin{equation}
+A_{j\ell} = \operatorname{sim}(Q_v(h'_j), Q_t(w_\ell)) / \tau_{\text{loc}},
+\end{equation}
+where $\tau_{\text{loc}}$ is a local alignment temperature. For each frame, we keep the strongest token evidence:
+\begin{equation}
+s_j = \max_{\ell} A_{j\ell}.
+\end{equation}
+This reflects the intuition that a frame should be considered informative if it strongly matches at least one salient textual cue, rather than needing to match the entire caption uniformly.
+
+The frame scores are converted into a soft selection distribution
+\begin{equation}
+\alpha_j = \frac{\exp(s_j / \tau^{(\ell)}_{\text{sel}})}{\sum_{k=1}^{M} \exp(s_k / \tau^{(\ell)}_{\text{sel}})},
+\end{equation}
+where $\tau^{(\ell)}_{\text{sel}}$ is a level-dependent selection temperature defined below. The resulting denoised visual view is constructed by reweighting the frame tokens:
+\begin{equation}
+z_{\text{sel}} = \sum_{j=1}^{M} \alpha_j h'_j,
+\qquad
+v_{\text{sel}} = \operatorname{norm}(P_v(z_{\text{sel}})).
+\end{equation}
+
+This is a soft frame reweighting mechanism, not a second inference branch. Both $v_{\text{base}}$ and $v_{\text{sel}}$ come from the same expanded clip, so the selected view can be interpreted as a denoised auxiliary view of the same weak pair.
+
+\subsection{Level-Aware Evidence Granularity}
+\label{sec:method_granularity}
+
+The hierarchical annotations in SurgLaVi-style data correspond to different temporal granularities. Fine-level captions typically describe shorter and more localized actions, whereas mid- and coarse-level captions summarize broader temporal segments. We therefore let the expected concentration of frame evidence vary by annotation level through a level-dependent selection temperature:
+\begin{equation}
+\tau^{(\ell)}_{\text{sel}} =
+\begin{cases}
+\tau_f, & \text{if } \ell=f,\\
+\tau_m, & \text{if } \ell=m,\\
+\tau_c, & \text{if } \ell=c.
+\end{cases}
+\end{equation}
+With $\tau_f < \tau_m < \tau_c$, fine-level supervision encourages sharper frame concentration within a short interval, whereas coarse-level supervision allows smoother evidence distributions over a broader temporal span.
+
+However, hierarchy in our final formulation does more than modulate this temperature. The level-aware temperature captures \emph{within-sample} evidence granularity, but it does not yet exploit \emph{cross-level} relations among nested captions. We address that next.
+
+\subsection{Structured Hierarchical Batch Construction}
+\label{sec:method_triplet}
+
+SurgLaVi-style data provides fine-, mid-, and coarse-level annotations that are temporally nested within the same video. If these annotations are simply flattened into a training pool, the model sees more samples but not necessarily more explicit cross-level supervision. To turn hierarchy into a supervision structure, we construct mixed-level training batches that preserve both level diversity and at least one explicit fine-mid-coarse relation.
+
+Concretely, each batch follows a user-defined level composition, for example $N_f$, $N_m$, and $N_c$ samples from the fine, mid, and coarse levels. When hierarchical anchoring is enabled, we additionally require that every batch contains at least one nested triplet
+\begin{equation}
+(V, [t_s^f,t_e^f], y^f),
+\quad
+(V, [t_s^m,t_e^m], y^m),
+\quad
+(V, [t_s^c,t_e^c], y^c),
+\end{equation}
+such that
+\begin{equation}
+[t_s^f,t_e^f] \subseteq [t_s^m,t_e^m] \subseteq [t_s^c,t_e^c].
+\end{equation}
+The remaining samples in the batch are drawn normally under the prescribed level ratio. This design guarantees that each optimization step observes at least one explicit cross-level relation instead of relying on accidental co-occurrence.
+
+\subsection{Batch-Reused Fine-Anchor Regularization}
+\label{sec:method_anchor}
+
+The motivation for cross-level regularization is simple: fine captions are temporally sharper and semantically more local than the mid/coarse summaries that contain them. We therefore treat the fine caption in the nested triplet as a local semantic anchor for the enclosing mid/coarse samples. Importantly, we reuse the fine caption embedding that has already been computed by the standard text branch for that batch, so the hierarchical regularizer does not introduce an extra text-encoder forward pass.
+
+Let $t^f$ denote the fine text embedding in the anchor triplet, and let $v^{m}_{\text{sel}}$ and $v^{c}_{\text{sel}}$ denote the selected visual embeddings of the corresponding mid and coarse samples. Let $\mathcal{T}$ denote the full in-batch text bank used by the standard contrastive objective. We define an additional image-to-text anchor loss
+\begin{equation}
+\mathcal{L}_{\text{htg}} =
+\frac{1}{2}
+\Big[
+\ell(v^{m}_{\text{sel}}, t^f; \mathcal{T})
++
+\ell(v^{c}_{\text{sel}}, t^f; \mathcal{T})
+\Big],
+\end{equation}
+where $\ell(\cdot)$ is a cross-entropy loss over similarities to the gathered text bank, with $t^f$ treated as the target text entry. Intuitively, this loss encourages the denoised mid/coarse representations to retain the local semantic evidence captured by the fine caption, instead of drifting toward only broad procedural context.
+
+This design is deliberately lightweight. We do not perform exhaustive child-to-parent grounding over all nested captions, and we do not add a separate hierarchical inference branch. Instead, we inject one stochastic but explicit cross-level relation into every batch and reuse the already-encoded fine text feature as a local anchor.
+
+\subsection{Training Objective and Test-Time Inference}
+\label{sec:method_objective}
+
+The paired text embedding is always computed by the standard text branch:
+\begin{equation}
+t = \operatorname{norm}(P_t(E_t(y))).
+\end{equation}
+We optimize two CLIP-style symmetric contrastive terms,
+\begin{equation}
+\mathcal{L}_{\text{base}} =
+\mathcal{L}_{v \rightarrow t}(v_{\text{base}}, t) +
+\mathcal{L}_{t \rightarrow v}(t, v_{\text{base}}),
+\end{equation}
+and
+\begin{equation}
+\mathcal{L}_{\text{sel}} =
+\mathcal{L}_{v \rightarrow t}(v_{\text{sel}}, t) +
+\mathcal{L}_{t \rightarrow v}(t, v_{\text{sel}}).
+\end{equation}
+The final objective is
+\begin{equation}
+\mathcal{L} =
+\mathcal{L}_{\text{base}} +
+\lambda_{\text{sel}} \mathcal{L}_{\text{sel}} +
+\lambda_{\text{htg}} \mathcal{L}_{\text{htg}},
+\end{equation}
+where $\lambda_{\text{sel}}$ controls the denoised auxiliary view and $\lambda_{\text{htg}}$ controls the strength of hierarchical anchoring.
+
+This formulation resolves two practical issues at once. The denoised selected view reduces the effect of temporally noisy positives within each sample, while the fine-anchor loss injects an explicit cross-level consistency signal that would be lost if hierarchical annotations were flattened into independent pairs. Yet test-time evaluation remains standard CLIP-style encoding:
+\begin{equation}
+v = \operatorname{encode\_image}(c), \qquad t = \operatorname{encode\_text}(y),
+\end{equation}
+followed by standard similarity scoring. All denoising and hierarchical anchoring mechanisms are therefore training-time supervision rules rather than new test-time retrieval procedures.
