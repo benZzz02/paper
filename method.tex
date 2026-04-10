@@ -1,14 +1,14 @@
 \section{Method}
 \label{sec:method}
 
-Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising}: training explicitly denoises temporally imprecise positives within each sample, while test-time inference remains standard CLIP.
+Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising}: training explicitly denoises temporally imprecise positives within each sample, while test-time inference remains standard CLIP. Because the method only changes how training frames are aggregated before contrastive alignment, it can be applied to any CLIP-style surgical VLP pipeline trained on timestamped interval-caption pairs.
 
 Conceptually, our design is related to multiple-instance learning and text-guided weak temporal localization. A weak interval is closer to a partially positive bag than to a uniformly positive set of frames~\cite{dietterich1997mil,ilse2018attentionmil,li2023boostingwtal,hu2024mmplateau,li2024fps}. We also use fine/mid/coarse annotation levels as a lightweight evidence-granularity prior, since broader captions naturally support smoother temporal evidence than short local captions. All additional mechanisms are used only during training, and test-time inference remains unchanged.
 
 \subsection{Method Overview}
 \label{sec:method_overview}
 
-Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip.
+Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip. In our experiments, we instantiate this rule in two settings: a CLIP model built from a surgery-domain-pretrained visual backbone, and public surgical VLP initializations retrained on SurgLaVi.
 
 Fine/mid/coarse annotation levels are used only to modulate the sharpness of this frame selection process. Fine captions correspond to more localized evidence and therefore encourage sharper concentration, whereas broader captions are allowed to retain smoother evidence distributions. During inference, however, we discard all training-only denoising logic and use standard CLIP-style video and text encoders exactly as usual.
 
@@ -45,7 +45,7 @@ Standard CLIP-style training then optimizes a symmetric InfoNCE objective
 \mathcal{L}_{t \rightarrow v}(t, v_{\text{base}}).
 \end{equation}
 
-This formulation is effective but implicitly assumes that the sampled interval provides a uniformly reliable positive visual representation for the paired text. Our method relaxes this assumption without replacing the underlying CLIP-style architecture.
+This formulation is effective but implicitly assumes that the sampled interval provides a uniformly reliable positive visual representation for the paired text. Our method relaxes this assumption without replacing the underlying CLIP-style architecture, which is precisely why it can be reused across different surgical VLP initializations.
 
 \subsection{Train-Time Local Temporal Expansion}
 \label{sec:method_expand}
