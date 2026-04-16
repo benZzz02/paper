@@ -3,12 +3,12 @@
 
 Our goal is to improve how weak surgical video-text supervision is used without replacing the underlying CLIP-style backbone. The key observation is that a weakly paired sample should not be treated as a uniformly reliable positive unit. Instead, the local visual evidence supporting the paired caption may occupy only a subset of the annotated interval and may be slightly shifted in time. We therefore formulate weakly supervised surgical VLP as \emph{train-time window denoising}: training explicitly denoises temporally imprecise positives within each sample, while test-time inference remains standard CLIP. Because the method only changes how training frames are aggregated before contrastive alignment, it can be applied to any CLIP-style surgical VLP pipeline trained on timestamped interval-caption pairs.
 
-Conceptually, our design is related to multiple-instance learning and text-guided weak temporal localization. A weak interval is closer to a partially positive bag than to a uniformly positive set of frames~\cite{dietterich1997mil,ilse2018attentionmil,li2023boostingwtal,hu2024mmplateau,li2024fps}. We also use fine/mid/coarse annotation levels as a lightweight evidence-granularity prior, since broader captions naturally support smoother temporal evidence than short local captions. All additional mechanisms are used only during training, and test-time inference remains unchanged.
+Conceptually, our design is related to multiple-instance learning and text-guided weak temporal localization. A weak interval is closer to a partially positive bag than to a uniformly positive set of frames~\cite{dietterich1997mil,ilse2018attentionmil,li2023boostingwtal,hu2024mmplateau,li2024fps}. We also use fine/mid/coarse annotation levels as a lightweight evidence-granularity prior, since broader captions naturally support smoother temporal evidence than short local captions. In the hierarchical variant, we further regularize same-video selected views across adjacent levels so that hierarchy becomes a weak structural constraint rather than only a temperature prior. All additional mechanisms are used only during training, and test-time inference remains unchanged.
 
 \subsection{Method Overview}
 \label{sec:method_overview}
 
-Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip. In our experiments, we instantiate this rule in two settings: a CLIP model built from a surgery-domain-pretrained visual backbone, and public surgical VLP initializations retrained on SurgLaVi.
+Our framework follows the same high-level dual-encoder paradigm as CLIP-style surgical VLP, but changes how temporally noisy positives are consumed during training. Starting from a weakly annotated interval, we first expand it into a small local temporal neighborhood and sample an expanded candidate clip. We then compute frame-text alignment scores inside this expanded window and transform them into soft frame weights. These weights define a denoised visual view that is trained jointly with a standard global visual view derived from the same expanded clip. In the hierarchical setting used by our current implementation, fine/mid/coarse samples are mixed during training, and batches can be constructed to contain same-video nested triplets so that local and broad supervision are seen together. During inference, however, all training-time denoising logic is discarded and the model falls back to standard CLIP-style independent image/text encoding.
 
 Fine/mid/coarse annotation levels are used only to modulate the sharpness of this frame selection process. Fine captions correspond to more localized evidence and therefore encourage sharper concentration, whereas broader captions are allowed to retain smoother evidence distributions. During inference, however, we discard all training-only denoising logic and use standard CLIP-style video and text encoders exactly as usual.
 
@@ -69,7 +69,7 @@ where $z_{\text{exp}}$ is the global pooled feature and $h'_j$ are frame-level t
 v_{\text{base}} = \operatorname{norm}(P_v(z_{\text{exp}})).
 \end{equation}
 
-The purpose of expansion is not to solve full temporal grounding. It is simply to expose a slightly wider temporal neighborhood around a noisy timestamp so that supportive frames near the interval boundary are still available during training.
+The purpose of expansion is not to solve full temporal grounding. It is simply to expose a slightly wider temporal neighborhood around a noisy timestamp so that supportive frames near the interval boundary are still available during training. In the current implementation, both the standard global branch and the denoised selection branch are computed from this same expanded training clip, rather than from separate original-window and expanded-window views.
 
 \subsection{Text-Guided Soft Frame Selection}
 \label{sec:method_selection}
@@ -99,7 +99,7 @@ z_{\text{sel}} = \sum_{j=1}^{M} \alpha_j h'_j,
 v_{\text{sel}} = \operatorname{norm}(P_v(z_{\text{sel}})).
 \end{equation}
 
-This is a soft frame reweighting mechanism, not a second inference branch. Both $v_{\text{base}}$ and $v_{\text{sel}}$ come from the same expanded clip, so the selected view can be interpreted as a denoised auxiliary view of the same weak pair.
+This is a soft frame reweighting mechanism, not a second inference branch. Both $v_{\text{base}}$ and $v_{\text{sel}}$ come from the same expanded clip, so the selected view can be interpreted as a denoised auxiliary view of the same weak pair. In our implementation, the frame-token alignment uses lightweight local projection heads and a max-over-tokens reduction to obtain one score per frame before temperature-scaled normalization.
 
 \subsection{Level-Aware Evidence Granularity}
 \label{sec:method_granularity}
@@ -115,7 +115,32 @@ The hierarchical annotations in SurgLaVi-style data correspond to different temp
 \end{equation}
 With $\tau_f < \tau_m < \tau_c$, fine-level supervision encourages sharper frame concentration within a short interval, whereas coarse-level supervision allows smoother evidence distributions over a broader temporal span.
 
-This is the only way hierarchy enters our final formulation. We use the annotation level as a prior on evidence granularity inside the denoising mechanism itself, rather than introducing an additional hierarchy-specific contrastive objective.
+This is the first way hierarchy enters our final formulation. We use the annotation level as a prior on evidence granularity inside the denoising mechanism itself, rather than introducing a separate hierarchy-specific prediction head or a heavy cross-level matching module.
+
+\subsection{Hierarchical Batch Construction}
+\label{sec:method_batch}
+
+Our implementation also aligns the training batches with the hierarchical supervision structure. Fine-, mid-, and coarse-level samples are mixed within each batch according to a prescribed level composition. When all three levels are present, we further enable same-video hierarchical anchoring: for a given video, the sampler preferentially constructs nested fine-mid-coarse triplets satisfying
+\begin{equation}
+[t_s^{f}, t_e^{f}] \subseteq [t_s^{m}, t_e^{m}] \subseteq [t_s^{c}, t_e^{c}].
+\end{equation}
+This mechanism does not by itself define a hierarchy loss. Instead, it ensures that different temporal granularities from the same video are observed together during optimization, making the level-aware denoising rule less dependent on accidental batch composition and enabling lightweight cross-level regularization.
+
+\subsection{Cross-Level Consistency on Selected Views}
+\label{sec:method_consistency}
+
+The same-video triplets described above provide a natural opportunity to regularize denoised evidence across temporal scales. Intuitively, if fine-, mid-, and coarse-level samples come from nested intervals of the same video, their selected views should not drift arbitrarily far apart in the shared embedding space. We therefore add a lightweight adjacent-level consistency term on selected visual embeddings:
+\begin{equation}
+\mathcal{L}_{\text{hier}} =
+\frac{1}{|\mathcal{T}|}
+\sum_{(f,m,c)\in\mathcal{T}}
+\Big[
+1 - \operatorname{cos}(v_{\text{sel}}^{f}, v_{\text{sel}}^{m})
+\, + \,
+1 - \operatorname{cos}(v_{\text{sel}}^{m}, v_{\text{sel}}^{c})
+\Big],
+\end{equation}
+where $\mathcal{T}$ denotes the set of same-video fine-mid-coarse triplets available in the current batch, and $\operatorname{cos}(\cdot,\cdot)$ is cosine similarity. We deliberately regularize only adjacent levels rather than enforcing full collapse across all scales. This keeps the constraint weak enough to preserve level-specific evidence concentration while still discouraging incompatible selected views across nested supervision.
 
 \subsection{Training Objective and Test-Time Inference}
 \label{sec:method_objective}
@@ -140,11 +165,12 @@ The final objective is
 \begin{equation}
 \mathcal{L} =
 \mathcal{L}_{\text{base}} +
-\lambda_{\text{sel}} \mathcal{L}_{\text{sel}},
+\lambda_{\text{sel}} \mathcal{L}_{\text{sel}} +
+\lambda_{\text{hier}} \mathcal{L}_{\text{hier}},
 \end{equation}
-where $\lambda_{\text{sel}}$ controls the strength of the denoised auxiliary view.
+where $\lambda_{\text{sel}}$ controls the strength of the denoised auxiliary view and $\lambda_{\text{hier}}$ controls the hierarchical consistency regularization.
 
-This formulation directly targets interval-level temporal imprecision while remaining lightweight. The denoised selected view reduces the effect of temporally noisy positives within each sample, and the level-aware temperature keeps the same denoising rule compatible with fine-, mid-, and coarse-level evidence granularity. Yet test-time evaluation remains standard CLIP-style encoding:
+This formulation directly targets interval-level temporal imprecision while remaining lightweight. The denoised selected view reduces the effect of temporally noisy positives within each sample, the level-aware temperature keeps the same denoising rule compatible with fine-, mid-, and coarse-level evidence granularity, and the adjacent-level consistency term prevents nested hierarchical samples from producing mutually incompatible selected evidence. Test-time evaluation remains standard CLIP-style encoding:
 \begin{equation}
 v = \operatorname{encode\_image}(c), \qquad t = \operatorname{encode\_text}(y),
 \end{equation}
