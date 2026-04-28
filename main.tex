@@ -26,7 +26,7 @@
     urlcolor=blue!50!black
 }
 
-\title{Train-Time Window Denoising for\\Weakly Supervised Surgical Video-Language Pretraining}
+\title{SurgAlign: Misalignment-Aware Surgical\\Video-Language Pretraining via Expanded Temporal Evidence and Text-Guided Local Reweighting}
 \author{}
 \date{}
 
@@ -35,7 +35,7 @@
 \maketitle
 
 \begin{abstract}
-Surgical video understanding is important for workflow analysis, context-aware assistance, retrospective review, and surgical education, yet dense expert annotation for phases, steps, actions, tools, and triplets remains expensive and difficult to scale. Weakly supervised surgical video-language pretraining therefore offers an attractive route to learn transferable representations for zero-shot surgical evaluation. However, most existing CLIP-style pipelines still sample multiple frames from a weakly annotated interval, pool them into one clip embedding, and align that embedding to the paired text as if all sampled frames were equally reliable positives. In surgical videos, this assumption is often too strong: the visual evidence that truly supports a caption is frequently concentrated in only a subset of frames and may be slightly shifted relative to the annotated timestamp. We address this problem with a train-time window denoising framework for weakly supervised surgical video-language pretraining. During training, each weak interval is treated as a noisy temporal anchor, expanded into a bounded local neighborhood, and softly reweighted by the paired text to produce a denoised visual training view. Fine/mid/coarse annotation levels are used only as evidence-granularity priors, enabling sharper frame selection for fine captions and smoother selection for broader captions. We validate the framework first on a controlled CLIP baseline built from a surgery-domain-pretrained visual backbone, and then on public surgical VLP initializations retrained on SurgLaVi under a unified protocol. Test-time inference remains standard CLIP-style independent video and text encoding. This design preserves the scalability and simplicity of CLIP-based surgical VLP while directly addressing temporal imprecision during training.
+Weakly supervised surgical video-language pretraining offers a scalable alternative to dense manual annotation, but its video-text pairs are often only loosely aligned in time. In realistic surgical corpora, paired text commonly comes from narrations, transcripts, or weak temporal descriptions whose visual support may occur slightly before or after the annotated interval center, or may occupy only a short subsegment within that interval. Standard CLIP-style training nevertheless treats the sampled clip as a uniformly reliable positive, which can blur the local evidence needed for fine-grained transfer. We present \textbf{SurgAlign}, a misalignment-aware training framework for surgical video-language pretraining. SurgAlign expands each weak interval into a bounded temporal neighborhood, samples candidate frames from the expanded window, and uses the paired text to compute soft frame weights for a selected local visual view during training. Hierarchical caption levels are incorporated as evidence-granularity priors through level-specific selection sharpness, and same-video adjacent levels can be regularized to remain locally compatible. All additional logic is training-only: test-time inference remains standard CLIP-style independent video and text encoding. SurgAlign is therefore not a new backbone or inference protocol, but a principled way to consume weak temporal supervision more effectively during surgical pretraining.
 \end{abstract}
 
 \input{introduction}
@@ -45,6 +45,8 @@ Surgical video understanding is important for workflow analysis, context-aware a
 \input{method}
 
 \input{experiments}
+
+\input{discussion}
 
 \input{conclusion}
 

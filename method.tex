@@ -22,12 +22,26 @@ This formulation is effective when the sampled clip is already well aligned with
 \subsection{Overview}
 \label{sec:method_overview}
 
-The overall pipeline is illustrated in the framework diagram. Starting from a weak temporal interval, SurgAlign first expands the interval into a bounded neighborhood. It then samples candidate frames from this expanded window and extracts frame-level features. Instead of uniformly pooling these frames, SurgAlign computes text-conditioned frame scores, converts them into soft weights, and builds a selected local visual view. The model is trained with two complementary branches:
+The overall pipeline is illustrated in Fig.~\ref{fig:surgalign_overview}. Starting from a weak temporal interval, SurgAlign first expands the interval into a bounded neighborhood. It then samples candidate frames from this expanded window and extracts frame-level features. Instead of uniformly pooling these frames, SurgAlign computes text-conditioned frame scores, converts them into soft weights, and builds a selected local visual view. The model is trained with two complementary branches:
 \begin{enumerate}[leftmargin=*]
     \item a global branch that preserves stable interval-level video-text alignment; and
     \item a selected branch that emphasizes text-relevant evidence inside the expanded temporal neighborhood.
 \end{enumerate}
 In hierarchical training, SurgAlign also encourages adjacent levels from the same video to produce compatible selected views. All of these mechanisms are training-only. Test-time inference remains standard CLIP-style video/text encoding.
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox[c][0.28\textheight][c]{0.94\linewidth}{
+\centering
+\textbf{Framework Diagram Placeholder}\\[4pt]
+\small
+Left: weak video-text pair with interval $[t_s,t_e]$, caption $y$, and level label $\ell$.\\[4pt]
+Middle: interval expansion, candidate frame sampling, visual/text encoding, and xpool-style text-guided frame weighting with level-specific temperature $\tau_{\mathrm{sel}}^{(\ell)}$.\\[4pt]
+Right: global branch, selected branch, contrastive losses, optional adjacent-level consistency loss, and a dashed inference path showing fallback to standard CLIP-style encoding.
+}}
+\caption{Overview of SurgAlign. Given a weak surgical video-text pair, SurgAlign expands the annotated interval into a bounded temporal neighborhood, samples candidate frames, and extracts frame and text representations. A text-guided weighting module computes soft frame weights and forms a selected local visual view, while a parallel global branch preserves stable clip-level alignment. Training optimizes the global contrastive loss together with a selected-view auxiliary loss, and can additionally apply an adjacent-level consistency loss when same-video fine/mid/coarse triplets are available. All extra modules are training-only; inference falls back to standard independent video and text encoding.}
+\label{fig:surgalign_overview}
+\end{figure}
 
 \subsection{Expanded Temporal Evidence}
 \label{sec:method_expand}
@@ -55,21 +69,24 @@ and let the text encoder produce token-level hidden states and a pooled global t
 \begin{equation}
 \{w_1, \ldots, w_L\}, \quad t = E_t(y).
 \end{equation}
-The global text embedding $t$ is still used by the contrastive objective. The selected branch, however, uses the token-level states to construct text-conditioned temporal evidence inside the expanded window. Our key design choice is to treat the multi-level annotation label $\ell$ as a prior on \emph{how} this evidence should be selected. Fine-, mid-, and coarse-level captions differ not only in temporal scope but also in internal semantic complexity. Fine captions are usually localized and dominated by one salient cue, whereas mid/coarse captions more often summarize multiple actions, instruments, or procedural states within one interval. We therefore treat mid/coarse captions as \emph{compositional semantic structures} rather than as longer monolithic queries.
+The global text embedding $t$ is still used by the contrastive objective. The selected branch, however, uses the token-level states to construct text-conditioned temporal evidence inside the expanded window. Our key design choice is to treat the multi-level annotation label $\ell$ as a prior on \emph{how sharply} this evidence should be selected. Fine-level captions usually correspond to narrower, more localized evidence, while mid/coarse captions often summarize broader procedural context. We therefore use hierarchy not to introduce different query structures, but to modulate the concentration of temporal selection.
 
-We encode this prior through a level-conditioned evidence-selection rule. Given level $\ell$, the selected branch uses a pair of level-dependent parameters,
+We first form a single text-guided selection query by mean-pooling the valid token states and applying a lightweight projection:
 \begin{equation}
-K_\ell, \qquad \tau_{\mathrm{sel}}^{(\ell)},
+\bar{w} = \frac{1}{L'}\sum_{r=1}^{L} m_r w_r, \qquad
+q = \operatorname{norm}(Q_t(\bar{w})),
 \end{equation}
-where $K_\ell$ controls how many latent semantic cues may be extracted from the text and $\tau_{\mathrm{sel}}^{(\ell)}$ controls how sharply the temporal evidence is concentrated. Concretely, we use
+where $m_r \in \{0,1\}$ is the token mask and $L' = \sum_r m_r$. Each frame token is projected in the same latent space,
 \begin{equation}
-K_\ell =
-\begin{cases}
-K_f, & \ell = f,\\
-K_m, & \ell = m,\\
-K_c, & \ell = c,
-\end{cases}
-\qquad
+\tilde{h}_j = \operatorname{norm}(Q_v(h_j)),
+\end{equation}
+and matched with the text query through cosine similarity:
+\begin{equation}
+s_j = q^\top \tilde{h}_j.
+\end{equation}
+
+Multi-level annotation enters only through a level-specific selection temperature
+\begin{equation}
 \tau_{\mathrm{sel}}^{(\ell)} =
 \begin{cases}
 \tau_f, & \ell = f,\\
@@ -77,55 +94,19 @@ K_c, & \ell = c,
 \tau_c, & \ell = c,
 \end{cases}
 \end{equation}
-with $K_f \leq K_m \leq K_c$ and $\tau_f < \tau_m < \tau_c$. This means that fine captions use fewer queries and sharper temporal selection, while broader captions are allowed to mine multiple latent semantic cues and distribute their mass over a wider temporal neighborhood.
+with $\tau_f < \tau_m < \tau_c$. This means that fine captions induce sharper temporal concentration, while broader captions are allowed to distribute attention over a wider temporal neighborhood.
 
-To keep the training objective simple, we do not explicitly decompose the sentence into supervised sub-phrases. Instead, we introduce a small bank of learnable latent text-query slots
+The frame weights are then computed as
 \begin{equation}
-\{q_1, \ldots, q_{K_{\max}}\},
+\alpha_j = \operatorname{softmax}_{j}\left(\frac{s_j}{\tau_{\mathrm{sel}}^{(\ell)}}\right),
 \end{equation}
-which are shared across levels and softly attend to the token sequence to extract multiple latent semantic cues.
-
-For the $k$-th latent query, we compute token attention
+and the selected visual view is obtained by weighted aggregation,
 \begin{equation}
-\beta_{kr} =
-\operatorname{softmax}_{r}
-\left(
-\frac{q_k^\top w_r}{\sqrt{d}}
-\right),
-\end{equation}
-and obtain a query-specific text cue
-\begin{equation}
-u_k = \sum_{r=1}^{L} \beta_{kr} w_r .
-\end{equation}
-These latent cues are then matched against the frame tokens after lightweight projections:
-\begin{equation}
-\tilde{u}_k = \operatorname{norm}(Q_t(u_k)), \qquad
-\tilde{h}_j = \operatorname{norm}(Q_v(h_j)).
-\end{equation}
-Their similarity defines query-conditioned frame scores
-\begin{equation}
-s_{kj} = \tilde{u}_k^\top \tilde{h}_j .
-\end{equation}
-
-Given the annotation level $\ell \in \{f,m,c\}$, we activate only the first $K_\ell$ latent queries and normalize the scores over time with the corresponding selection temperature:
-\begin{equation}
-\alpha_{kj} =
-\operatorname{softmax}_{j}
-\left(
-\frac{s_{kj}}{\tau_{\mathrm{sel}}^{(\ell)}}
-\right), \qquad k = 1, \ldots, K_\ell .
-\end{equation}
-Each latent query therefore selects its own temporally weighted evidence from the expanded window. We aggregate the query-specific evidence as
-\begin{equation}
-z_k = \sum_{j=1}^{M} \alpha_{kj} h_j,
-\end{equation}
-and fuse them into a single selected visual view
-\begin{equation}
-z_{\mathrm{sel}} = \frac{1}{K_\ell}\sum_{k=1}^{K_\ell} z_k, \qquad
+z_{\mathrm{sel}} = \sum_{j=1}^{M} \alpha_j h_j, \qquad
 v_{\mathrm{sel}} = \operatorname{norm}(P_v(z_{\mathrm{sel}})).
 \end{equation}
 
-This selected branch should be interpreted as a denoised auxiliary view of the same weak pair, not as a new inference-time matching module. The global branch still provides stable clip-level supervision, while the selected branch teaches the model to recover text-relevant temporal evidence from imprecise positives. Importantly, multi-level annotation is not used to define a separate hierarchy-specific prediction task. It simply conditions the evidence-selection process through $(K_\ell, \tau_{\mathrm{sel}}^{(\ell)})$. The role of multiple latent queries is therefore not to enforce explicit sentence parsing, but to provide a lightweight evidence-mining mechanism when the caption expresses a compositional procedure description.
+This selected branch should be interpreted as a denoised auxiliary view of the same weak pair, not as a new inference-time matching module. The global branch still provides stable clip-level supervision, while the selected branch teaches the model to recover text-relevant temporal evidence from imprecise positives. Importantly, multi-level annotation is not used to define a separate hierarchy-specific prediction task. It only controls the concentration of evidence selection through $\tau_{\mathrm{sel}}^{(\ell)}$.
 
 \subsection{Hierarchical Consistency Across Adjacent Levels}
 \label{sec:method_consistency}

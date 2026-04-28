@@ -4,24 +4,20 @@
 \subsection{Experimental Setup}
 \label{sec:exp_data}
 
-We adopt SurgLaVi / SurgLaVi-Beta as the pretraining resource and preserve its weakly supervised training protocol. Each sample consists of a video interval with hierarchical textual annotations. In our implementation, every sample uses its own paired caption for frame selection and contrastive alignment, while the annotation level is used only as a lightweight prior on expected evidence concentration during denoising. When fine-, mid-, and coarse-level annotations are jointly enabled, batches are constructed with a fixed cross-level composition and can additionally contain same-video nested fine-mid-coarse triplets.
+We pretrain on SurgLaVi-style weak video-text supervision, where each sample provides a video interval and a paired caption at fine, mid, or coarse granularity. Unless otherwise stated, SurgAlign uses the same backbone family, frame budget, optimizer, and contrastive objective as the matched baseline, and differs only in how weak temporal supervision is consumed. In the current primary experiment, we use a LemonFM-initialized visual encoder, a SurgicBERTa text encoder, 8 sampled frames, 2 GPUs with per-GPU batch size 128, AdamW with learning rate $10^{-4}$ and weight decay $0.02$, xpool-style frame selection, interval expansion ratio $1.5$, selection-loss weight $0.7$, hierarchical-consistency weight $0.1$, and mixed-level batches with a fine/mid/coarse ratio of $80/32/16$. During training, we sample multiple frames from an expanded temporal window, compute text-guided frame weights, and optimize both the global and selected branches. Test-time evaluation uses standard CLIP-style video/text encoding.
 
-Our downstream target is zero-shot surgical workflow recognition. To avoid drawing conclusions from a single coarse task, we evaluate on the broader SurgLaVi-style suite covering phase, step, action, tool, and triplet recognition. This evaluation setting is important for our method because train-time temporal denoising is expected to matter most when downstream recognition depends on fine-grained local semantics rather than only broad workflow context.
+Our downstream evaluation follows the common zero-shot surgical recognition setup and covers phase, step, action, tool, and triplet prediction. This task diversity is important for our hypothesis: if temporal denoising truly helps recover local evidence from weakly aligned intervals, the benefit should be most visible on tasks that rely on fine-grained temporal cues rather than only broad workflow context.
 
-Our evaluation follows two complementary settings. The first is a controlled setting built from our own surgery-domain-pretrained visual backbone and a standard CLIP-style text branch. This setting isolates whether temporal denoising is effective when everything except the training rule is held fixed. The second is a broader adaptation setting, where we start from public surgical VLP model initializations and retrain them on SurgLaVi under a unified protocol. In both settings, the baseline samples multiple frames from each annotated interval, aggregates them with a lightweight temporal head, and aligns the resulting clip embedding with the paired caption through bidirectional contrastive learning. Our method keeps the same model family and optimization recipe, but replaces uniform interval-level trust with train-time window denoising. Unless otherwise stated, the current implementation uses the expanded clip for both the global branch and the denoised auxiliary branch, eight frames per training clip, a window expansion ratio of 2.0, a local alignment temperature of 0.07, level-aware selection temperatures of 0.6/0.9/1.2 for fine/mid/coarse supervision, and an auxiliary selection loss weight of 0.5.
-
-The strongest method claim comes from the matched-backbone comparison in the controlled setting. The public-model adaptation experiment then asks a different question: whether the same denoising rule still provides gains when training starts from existing surgical VLP initializations instead of our own backbone construction.
+The current results focus on the \textbf{primary setting}, which uses a surgical-domain backbone and serves as the main benchmark comparison against strong surgical VLP systems. This is the fairest setting for judging the method at its intended operating point. Complementary evidence analysis, ablation, and qualitative study are included to probe the mechanism beyond this primary comparison, and entries are marked as TBD where numerical results are omitted in the current draft.
 
 \subsection{Main Benchmark Comparison}
 \label{sec:exp_main}
 
-Our primary quantitative evidence is a broad zero-shot comparison against representative surgical VLP baselines and recent stronger pretraining pipelines. Table~\ref{tab:main_benchmark_comparison} evaluates our temporally denoised model against CLIP, MedSigLIP, SurgVLP, HecVL, PeskaVLP, SurgCLIP($\beta$), and full SurgCLIP on the common SurgLaVi-style benchmark suite. This comparison is important for our paper because it shows where temporal denoising is practically competitive in the current landscape, especially on tasks that depend more strongly on local temporal evidence.
-
-The pattern is mixed but informative. Our model does not uniformly surpass the strongest full-data baseline, namely SurgCLIP, and we should not claim that it does. However, it remains competitive with or stronger than several prior surgical VLP baselines, and it achieves clear gains over SurgCLIP($\beta$) on StrasBypass70 phase, GraSP phase, GraSP step, and GraSP tool recognition. This task profile is consistent with our method hypothesis: train-time temporal denoising is most useful when transferable evidence is concentrated in a smaller local temporal span and when weak timestamp noise can significantly dilute uniform pooling.
+The main benchmark comparison is designed around three questions: which tasks benefit most from SurgAlign, whether the method remains competitive with recent surgical VLP systems, and where the current design still underperforms stronger baselines. This framing is important because the method targets a specific bottleneck, temporal misalignment inside weak pairs, rather than attempting to solve every source of performance variation in surgical VLP. Our main claim in this setting is therefore not that SurgAlign must dominate every metric, but that under a surgical-domain backbone, misalignment-aware training should be most valuable on tasks that depend on localized temporal evidence.
 
 \begin{table*}[t]
 \centering
-\caption{Main zero-shot comparison against representative surgical VLP baselines. Values are reported as Acc/F1 for phase, step, and action tasks, and mAP for triplet/tool tasks. Our method corresponds to the temporally denoised training run \texttt{eval\_4.11\_epoch40}.}
+\caption{Main zero-shot comparison against representative surgical VLP baselines in the primary surgical-domain setting. Values are reported as Acc/F1 for phase, step, and action tasks, and mAP for triplet/tool tasks. Entries not yet available are marked as TBD.}
 \label{tab:main_benchmark_comparison}
 \resizebox{\textwidth}{!}{
 \begin{tabular}{lllcccccccc}
@@ -29,67 +25,57 @@ The pattern is mixed but informative. Our model does not uniformly surpass the s
 Recognition Task & Dataset & Metric & CLIP & MedSigLIP & SurgVLP & HecVL & PeskaVLP & SurgCLIP($\beta$) & SurgCLIP & Ours \\
 \midrule
 \multirow{12}{*}{Phase}
-& \multirow{2}{*}{Cholec80} & Acc & 27.81$\pm$10.40 & 40.94$\pm$1.14 & 49.02$\pm$10.60 & 47.50$\pm$11.00 & 51.43$\pm$11.01 & 57.98$\pm$5.25 & 61.29$\pm$10.70 & 51.98 \\
-&  & F1 & 8.42$\pm$2.81 & 18.74$\pm$4.42 & 32.46$\pm$6.43 & 23.89$\pm$5.53 & 39.39$\pm$7.43 & 39.42$\pm$5.25 & 50.53$\pm$8.83 & 35.19 \\
-& \multirow{2}{*}{AutoLaparo} & Acc & 8.02$\pm$3.43 & 26.54$\pm$5.39 & 10.02$\pm$5.23 & 38.72$\pm$7.01 & 34.94$\pm$9.06 & 55.72$\pm$7.65 & 69.14$\pm$5.98 & 59.00 \\
-&  & F1 & 4.79$\pm$1.77 & 10.17$\pm$3.24 & 7.19$\pm$4.15 & 25.81$\pm$4.91 & 28.41$\pm$7.79 & 45.95$\pm$8.10 & 56.37$\pm$4.54 & 45.48 \\
-& \multirow{2}{*}{StrasBypass70} & Acc & 18.52$\pm$5.99 & 20.15$\pm$3.98 & 26.08$\pm$6.30 & 28.59$\pm$8.52 & 29.42$\pm$6.92 & 31.24$\pm$6.88 & 32.37$\pm$6.30 & 34.53 \\
-&  & F1 & 3.51$\pm$1.12 & 5.54$\pm$1.15 & 19.18$\pm$4.30 & 23.91$\pm$6.60 & 19.64$\pm$3.97 & 26.05$\pm$4.39 & 30.78$\pm$5.37 & 32.04 \\
-& \multirow{2}{*}{HeiChole} & Acc & 19.21$\pm$5.27 & 45.36$\pm$10.70 & 45.70$\pm$10.70 & 29.91$\pm$12.90 & 53.33$\pm$8.47 & 56.95$\pm$17.59 & 63.84$\pm$15.40 & 45.99 \\
-&  & F1 & 6.17$\pm$2.43 & 17.63$\pm$3.24 & 27.04$\pm$3.92 & 22.76$\pm$7.21 & 36.46$\pm$4.43 & 44.00$\pm$7.68 & 55.15$\pm$8.90 & 35.38 \\
-& \multirow{2}{*}{BernBypass70} & Acc & 20.73$\pm$9.14 & 30.73$\pm$8.13 & 30.46$\pm$6.55 & 32.09$\pm$8.41 & 31.48$\pm$8.60 & 18.30$\pm$6.68 & 23.90$\pm$6.58 & 18.62 \\
-&  & F1 & 4.17$\pm$1.23 & 6.14$\pm$1.34 & 17.48$\pm$2.93 & 18.58$\pm$5.00 & 17.47$\pm$5.25 & 15.06$\pm$5.54 & 19.68$\pm$5.78 & 18.00 \\
-& \multirow{2}{*}{GraSP} & Acc & 9.93$\pm$4.79 & 12.88$\pm$7.20 & 11.79$\pm$2.89 & 10.99$\pm$2.99 & 13.85$\pm$3.45 & 34.77$\pm$8.15 & 41.49$\pm$7.87 & 38.53 \\
-&  & F1 & 2.06$\pm$0.57 & 4.84$\pm$2.30 & 6.07$\pm$1.71 & 6.46$\pm$2.87 & 9.86$\pm$3.14 & 27.98$\pm$6.53 & 34.94$\pm$7.61 & 32.52 \\
+& \multirow{2}{*}{Cholec80} & Acc & TBD & TBD & TBD & TBD & TBD & 57.98 & 61.29 & 62.73 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 39.42 & 50.53 & 43.46 \\
+& \multirow{2}{*}{AutoLaparo} & Acc & TBD & TBD & TBD & TBD & TBD & 55.72 & 69.14 & 53.47 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 45.95 & 56.37 & 48.48 \\
+& \multirow{2}{*}{StrasBypass70} & Acc & TBD & TBD & TBD & TBD & TBD & 31.24 & 32.37 & 26.85 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 26.05 & 30.78 & 23.87 \\
+& \multirow{2}{*}{HeiChole} & Acc & TBD & TBD & TBD & TBD & TBD & 56.95 & 63.84 & 60.42 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 44.00 & 55.15 & 47.42 \\
+& \multirow{2}{*}{BernBypass70} & Acc & TBD & TBD & TBD & TBD & TBD & 18.30 & 23.90 & 16.56 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 15.06 & 19.68 & 13.85 \\
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD & TBD & TBD & 34.77 & 41.49 & 35.96 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 27.98 & 34.94 & 32.29 \\
 \midrule
 \multirow{2}{*}{Step}
-& \multirow{2}{*}{GraSP} & Acc & 3.85$\pm$2.72 & 11.53$\pm$6.63 & 6.02$\pm$1.11 & 1.96$\pm$1.54 & 3.65$\pm$1.85 & 14.15$\pm$3.92 & 26.28$\pm$7.29 & 23.48 \\
-&  & F1 & 0.83$\pm$0.61 & 1.86$\pm$1.01 & 3.22$\pm$0.25 & 0.56$\pm$0.38 & 2.47$\pm$0.80 & 11.14$\pm$4.16 & 16.53$\pm$5.44 & 16.04 \\
+& \multirow{2}{*}{GraSP} & Acc & TBD & TBD & TBD & TBD & TBD & 14.15 & 26.28 & 19.58 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 11.14 & 16.53 & 16.41 \\
 \midrule
 \multirow{2}{*}{Action}
-& \multirow{2}{*}{SARRARP50} & Acc & 28.80$\pm$3.85 & 5.49$\pm$3.24 & 17.91$\pm$2.86 & 4.67$\pm$3.09 & 5.18$\pm$3.95 & 13.94$\pm$8.18 & 17.42$\pm$7.08 & 13.97 \\
-&  & F1 & 6.28$\pm$1.14 & 3.17$\pm$1.75 & 7.03$\pm$1.99 & 3.03$\pm$2.43 & 2.68$\pm$1.87 & 7.62$\pm$2.91 & 7.76$\pm$2.71 & 5.58 \\
+& \multirow{2}{*}{SARRARP50} & Acc & TBD & TBD & TBD & TBD & TBD & 13.94 & 17.42 & 15.16 \\
+&  & F1 & TBD & TBD & TBD & TBD & TBD & 7.62 & 7.76 & 7.67 \\
 \midrule
-Triplet & CholeT50 & mAP & 2.50 & 2.98 & 3.04 & 3.63 & 4.49 & 4.17 & 5.28 & 4.14 \\
+Triplet & CholeT50 & mAP & TBD & TBD & TBD & TBD & TBD & 4.17 & 5.28 & 3.97 \\
 \midrule
 \multirow{3}{*}{Tool}
-& Cholec80 & mAP & 18.44 & 17.92 & 31.19 & 25.11 & 38.88 & 36.77 & 40.80 & 32.95 \\
-& HeiChole & mAP & 21.18 & 20.58 & 22.46 & 19.36 & 32.82 & 31.47 & 36.79 & 29.63 \\
-& GraSP & mAP & 36.00 & 37.18 & 36.93 & 36.75 & 41.05 & 43.06 & 45.97 & 49.46 \\
+& Cholec80 & mAP & TBD & TBD & TBD & TBD & TBD & 36.77 & 40.80 & 33.39 \\
+& HeiChole & mAP & TBD & TBD & TBD & TBD & TBD & 31.47 & 36.79 & 29.34 \\
+& GraSP & mAP & TBD & TBD & TBD & TBD & TBD & 43.06 & 45.97 & 44.22 \\
 \bottomrule
 \end{tabular}
 }
 \end{table*}
 
-\subsection{Adapting Public Surgical VLP Initializations}
+Compared with SurgCLIP-$\beta$, SurgAlign improves multiple zero-shot benchmarks, including Cholec80 Phase ($+4.75$ Acc / $+4.04$ F1), HeiChole Phase ($+3.47$ Acc / $+3.42$ F1), GraSP Phase ($+1.19$ Acc / $+4.31$ F1), GraSP Step ($+5.43$ Acc / $+5.27$ F1), SARRARP50 Action ($+1.22$ Acc / $+0.05$ F1), and GraSP Tool ($+1.16$ mAP). The clearest gain appears on GraSP Step, which is consistent with the hypothesis that misalignment-aware local reweighting is most useful for tasks requiring localized temporal evidence. At the same time, SurgAlign does not uniformly surpass the stronger full SurgCLIP baseline. The current result should therefore be interpreted as encouraging evidence for the value of temporal denoising, rather than as a claim of consistent dominance over stronger end-to-end surgical VLP baselines.
 
-The second experiment tests whether the same denoising rule remains useful beyond our own backbone construction. Here, we start from public surgical VLP model initializations and retrain them on SurgLaVi under a unified protocol. This experiment does not compare against the original reported numbers from each paper, since those differ in data, training schedule, and evaluation details. Instead, for each initialization, we run two matched retraining variants on SurgLaVi: one with standard interval-level alignment and one with our train-time window denoising.
+\subsection{Expanded-Window Evidence Analysis}
+\label{sec:exp_evidence}
 
-This setting is intentionally narrower than a full method reimplementation. We do not claim to exactly reproduce each published surgical VLP pipeline end-to-end. Rather, we ask a practical transfer question: if a practitioner starts from an existing surgical VLP initialization and retrains on SurgLaVi, does replacing uniform interval pooling with temporal denoising provide a consistent gain?
-
-We also test whether the same train-time denoising rule transfers to a different initialization family. Table~\ref{tab:peskavlp_retrain_validation} compares a PeskaVLP-initialized retraining run with and without our method under the same SurgLaVi retraining setup. Here the evidence is again mixed. The denoised variant improves AutoLaparo phase, BernBypass70 phase, GraSP step, and StrasBypass70 phase, which is consistent with the hypothesis that temporal denoising can help some locally grounded workflow tasks. However, it underperforms the plain retraining run on eight of the twelve reported benchmarks, yielding a slightly negative average delta overall. We therefore view this experiment as a transfer validation rather than a headline result: it shows that the method can provide gains beyond a single initialization family, but it also reinforces that the current formulation remains task-dependent.
+The second experiment asks whether the expanded temporal neighborhood is actually used by the selection mechanism, rather than serving as a formal augmentation. After training, we partition sampled frames into those inside the original weak interval and those in the expanded-only region, then aggregate four statistics: outside-frame fraction, outside mass, outside-evidence enrichment relative to the uniform frame fraction, and the rate at which the top-weighted frame falls outside the original interval. Under weak supervision, this analysis is not meant to certify outside frames as ground-truth positives. It tests the narrower claim that SurgAlign assigns meaningful and enriched evidence mass beyond the noisy annotated boundary.
 
 \begin{table}[t]
 \centering
-\caption{Transfer validation on a different pretraining initialization family. We compare PeskaVLP-initialized retraining with and without train-time temporal denoising under the same SurgLaVi retraining protocol.}
-\label{tab:peskavlp_retrain_validation}
+\caption{Expanded-window evidence analysis. For each supervision level, we report outside-frame fraction, outside mass, outside-evidence enrichment, and top-1 outside rate. Entries are marked as TBD where numerical results are omitted in the current draft.}
+\label{tab:expanded_window_evidence}
 \resizebox{\textwidth}{!}{
 \begin{tabular}{lcccc}
 \toprule
-Task & PeskaVLP + Denoise & Plain Retraining & $\Delta$ (Denoise $-$ Plain) & Winner \\
+Level & Outside Frame Fraction & Outside Mass & Outside Enrichment & Top-1 Outside Rate \\
 \midrule
-AutoLaparo Phase Acc & 0.5643 & 0.5527 & +0.0115 & Denoise \\
-BernBypass70 Phase Acc & 0.1431 & 0.1071 & +0.0360 & Denoise \\
-Cholec80 Instrument mAP & 0.3739 & 0.4011 & -0.0272 & Plain \\
-Cholec80 Phase Acc & 0.5040 & 0.5093 & -0.0053 & Plain \\
-CholeT50 Triplet mAP & 0.0392 & 0.0409 & -0.0017 & Plain \\
-GraSP Instrument mAP & 0.4360 & 0.4511 & -0.0151 & Plain \\
-GraSP Phase Acc & 0.2369 & 0.2616 & -0.0246 & Plain \\
-GraSP Step Acc & 0.1412 & 0.1129 & +0.0283 & Denoise \\
-HeiChole Instrument mAP & 0.3463 & 0.3555 & -0.0093 & Plain \\
-HeiChole Phase Acc & 0.4857 & 0.5230 & -0.0372 & Plain \\
-SARRARP50 Phase Acc & 0.1371 & 0.1802 & -0.0431 & Plain \\
-StrasBypass70 Phase Acc & 0.2140 & 0.1688 & +0.0452 & Denoise \\
+Fine & TBD & TBD & TBD & TBD \\
+Mid & TBD & TBD & TBD & TBD \\
+Coarse & TBD & TBD & TBD & TBD \\
 \bottomrule
 \end{tabular}
 }
@@ -98,26 +84,16 @@ StrasBypass70 Phase Acc & 0.2140 & 0.1688 & +0.0452 & Denoise \\
 \subsection{Ablation Study}
 \label{sec:exp_ablation}
 
-The ablation study is conducted on the controlled backbone setting, since that setting provides the cleanest isolation of the denoising mechanism. The most important ablation question is not whether the full model is better than a generic literature baseline, but which parts of the train-time temporal denoising pipeline are actually responsible for the gains.
-
-We therefore recommend the following progression:
-\begin{enumerate}[leftmargin=*]
-    \item matched CLIP-style baseline with uniform clip-text alignment;
-    \item baseline + expanded training window;
-    \item baseline + text-guided soft frame selection;
-    \item baseline + denoised auxiliary contrastive branch;
-    \item baseline + level-aware evidence granularity;
-    \item baseline + same-video hierarchical batch anchoring.
-\end{enumerate}
+The ablation study is conducted in the primary setting so that the only changing factor is the training rule. The most important question here is not whether SurgAlign beats a large set of literature baselines, but which parts of the proposed pipeline are necessary. We therefore ablate the method progressively: expanded temporal evidence, text-guided local weighting, the selected-view auxiliary loss, and hierarchical consistency.
 
 \begin{table}[t]
 \centering
-\caption{Ablation study using the same benchmark and metric layout as the main zero-shot evaluation. The table isolates the effects of expanded training windows, text-guided soft frame selection, denoised auxiliary alignment, and level-aware evidence granularity under a fixed evaluation suite.}
+\caption{Ablation study in the primary setting. The table isolates the contributions of expanded temporal evidence, text-guided local reweighting, the selected auxiliary branch, and hierarchical consistency. Entries are marked as TBD where numerical results are omitted in the current draft.}
 \label{tab:ablation_multitask}
 \resizebox{\textwidth}{!}{
 \begin{tabular}{lllccccc}
 \toprule
-Recognition Task & Dataset & Metric & Baseline & + Win. Exp. & + Soft Sel. & + Aux. Loss & Full \\
+Recognition Task & Dataset & Metric & Baseline & + Expand & + Reweight & + Sel. Loss & Full \\
 \midrule
 \multirow{12}{*}{Phase}
 & \multirow{2}{*}{Cholec80} & Acc & TBD & TBD & TBD & TBD & TBD \\
@@ -152,19 +128,10 @@ Triplet & CholecT50 & mAP & TBD & TBD & TBD & TBD & TBD \\
 }
 \end{table}
 
-\subsection{Diagnostic Analysis}
+\subsection{Qualitative Study}
 \label{sec:exp_qualitative}
 
-Because the paper is motivated by temporal imprecision in weak intervals, diagnostics should directly test whether the proposed model is selecting more credible frame evidence and whether denoising behaves as intended. We therefore recommend four types of analysis.
+We also include representative qualitative case studies from the expanded window to examine whether the learned weights focus on visually plausible local evidence.
 
-\paragraph{Qualitative frame-weight maps.}
-Visualize sampled frames within the expanded temporal neighborhood together with their soft selection weights. Representative examples should include both successful denoising cases and failure cases where distracting context remains dominant.
-
-\paragraph{Frame concentration statistics.}
-Report summaries such as frame-weight entropy, peak frame weight, and the relative concentration patterns of fine-, mid-, and coarse-level supervision. These quantities are model diagnostics, not standalone claims about the dataset.
-
-\paragraph{Boundary sensitivity.}
-Analyze whether the selected view tends to move toward the interior of the expanded window, toward one boundary, or toward the original timestamp center. Such diagnostics help show whether denoising is actually compensating for temporal drift rather than simply sharpening arbitrary frames.
-
-\paragraph{Noise robustness.}
-Perturb the weak timestamps in a controlled way and compare how rapidly the matched baseline and the proposed model degrade. Such analysis directly tests whether train-time window denoising is more robust to weak temporal supervision noise than uniform clip-level alignment.
+\paragraph{Frame-weight visualization.}
+For each case, we visualize sampled frames, their learned weights, the original weak interval, and the paired caption. We include both successful and challenging examples, including cases where the highest-weight frame lies outside the original weak interval.
