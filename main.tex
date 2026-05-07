@@ -26,7 +26,7 @@
     urlcolor=blue!50!black
 }
 
-\title{SurgAlign: Misalignment-Aware Surgical\\Video-Language Pretraining via Expanded Temporal Evidence and Text-Guided Local Reweighting}
+\title{SurgAlign: Learning from Temporally Misaligned\\Weak Surgical Video-Text Pairs}
 \author{}
 \date{}
 
@@ -35,7 +35,7 @@
 \maketitle
 
 \begin{abstract}
-Weak surgical video-text pairs are often only approximately aligned in time: the text can be correct for an interval while the frames that visually support it occupy only a short subsegment or lie slightly outside the annotated center. Standard CLIP-style surgical video-language pretraining (VLP) ignores this mismatch and pools the sampled interval as a uniformly positive clip, which blurs the local evidence needed for fine-grained transfer. We present \textbf{SurgAlign}, a training-time refinement framework that treats each weak interval as a noisy temporal anchor, expands it into a bounded temporal neighborhood, and uses the paired text to compute soft frame weights for a selected local visual view. SurgAlign couples this selected view with a standard global branch, uses hierarchical caption levels only as priors on selection sharpness, and leaves test-time inference unchanged. In matched surgical-domain evaluation, SurgAlign improves multiple zero-shot surgical benchmarks, with the clearest gains on tasks that depend on localized visual evidence.
+Weak video-text pairs from narrations or coarse temporal notes are attractive for scalable video-language pretraining, but they are also temporally imprecise. In surgical video, this problem is especially acute: a paired description can be semantically correct for an interval while the frames that visually justify it occupy only a short subsegment embedded in repetitive procedural context. Standard CLIP-style training ignores this structure and treats frames sampled from the weak interval as uniformly positive for the paired text. We present \textbf{SurgAlign}, a training-time framework that treats each weak interval as a noisy temporal anchor, expands it locally, and uses the paired text to softly reweight candidate frames while preserving a standard global branch and unchanged test-time inference. In matched zero-shot surgical evaluation, SurgAlign improves a matched baseline on several evidence-sensitive benchmarks, with the clearest gain on GraSP Step ($+5.43$ Acc / $+5.27$ F1), suggesting that better positive-pair construction matters when weak video-text alignment is locally noisy.
 \end{abstract}
 
 \input{introduction}

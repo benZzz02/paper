@@ -1,6 +1,6 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented SurgAlign, a training-time method for surgical video-language pretraining that treats a weak interval as a noisy temporal anchor rather than a uniformly positive clip. By combining bounded temporal expansion with text-guided local evidence selection, SurgAlign improves how weak video-text supervision is consumed while keeping standard CLIP-style inference unchanged.
+We presented SurgAlign, a training-time method for learning from temporally misaligned weak surgical video-text pairs. Instead of treating a weak interval as a uniformly positive clip, SurgAlign treats it as a noisy temporal anchor and combines bounded temporal expansion with text-guided local evidence selection, while keeping standard CLIP-style inference unchanged.
 
-The main takeaway is simple: better modeling of local evidence inside weak temporal pairs can improve zero-shot surgical understanding, especially on tasks that depend on localized visual cues. More broadly, the results suggest that progress in weakly supervised surgical VLP may come not only from larger corpora and stronger backbones, but also from more careful treatment of temporal supervision noise.
+The main takeaway is equally simple: better positive-pair construction can improve zero-shot surgical understanding when weak video-text alignment is locally noisy, especially on tasks that depend on localized visual cues. More broadly, the results suggest that progress in weakly supervised video-language pretraining may depend not only on larger corpora and stronger backbones, but also on more careful treatment of temporal supervision noise.

@@ -1,7 +1,7 @@
 \section{Method}
 \label{sec:method}
 
-SurgAlign is a training-time refinement for weak surgical VLP. Instead of assuming that every frame inside a weak interval is equally positive, it treats the interval as an approximate temporal anchor and recovers a better local visual view around it. The method has three steps: bounded temporal expansion, text-guided local weighting, and joint optimization with a standard global branch. The video and text encoders, as well as the test-time pipeline, remain unchanged.
+SurgAlign is a training-time refinement for weak surgical VLP. It changes only how positive video-text pairs are consumed during training. The method is motivated by one observation: in weak surgical pairs, supervision is often reliable at the interval level but noisy at the frame level. Instead of assuming that every frame inside a weak interval is equally positive, SurgAlign treats the interval as an approximate temporal anchor and recovers a better local visual view around it. The method has three components: bounded temporal expansion, text-guided local weighting, and joint optimization with a standard global branch. The video and text encoders, as well as the test-time pipeline, remain unchanged.
 
 \subsection{Preliminaries}
 \label{sec:method_setup}
@@ -13,16 +13,17 @@ Each training sample is written as
 where $V$ is a surgical video, $[t_s, t_e]$ is the weak temporal interval, $y$ is the paired text, and $\ell \in \{f, m, c\}$ denotes the fine, mid, or coarse annotation level. In a standard CLIP-style baseline, $M$ frames are sampled from $[t_s, t_e]$, encoded by a visual backbone $E_v$, aggregated into one clip representation, and aligned with a text representation produced by a text encoder $E_t$. If $A_v(\cdot)$ is the temporal aggregation head and $P_v(\cdot), P_t(\cdot)$ are the projection heads, the baseline computes
 \begin{equation}
 v_{\mathrm{glob}} = \operatorname{norm}\!\left(P_v(A_v(E_v(c)))\right), \qquad
-t = \operatorname{norm}\!\left(P_t(E_t(y))\right),
+u = E_t(y), \qquad
+t = \operatorname{norm}\!\left(P_t(u)\right),
 \end{equation}
 and optimizes a symmetric contrastive loss.
 
-This formulation is effective when the sampled clip is already well aligned with the text. Our setting is weaker: the pair can be semantically valid while the truly supportive visual evidence occupies only a subset of frames. SurgAlign keeps the same encoders and contrastive objective, but changes how the visual evidence is collected and aggregated during training.
+This formulation is effective when the sampled clip is already well aligned with the text. Our setting is weaker: the pair can be semantically valid even when the truly supportive visual evidence occupies only a subset of frames. In other words, the baseline uses one positive label for a set of frames that do not equally support the paired text. SurgAlign keeps the same encoders and contrastive objective, but changes how the positive visual evidence is collected and aggregated during training.
 
 \subsection{Overview}
 \label{sec:method_overview}
 
-SurgAlign uses two training branches. Starting from a weak temporal interval, it first expands the interval into a bounded neighborhood and samples candidate frames from the expanded window. It then computes text-conditioned frame weights and aggregates a selected local visual view. Training combines:
+SurgAlign uses two training branches. Starting from a weak temporal interval, it first expands the interval into a bounded neighborhood and samples candidate frames from the expanded window, because the most informative evidence may lie slightly before or after the annotated boundaries. It then computes text-conditioned frame weights and aggregates a selected local visual view, because even within that neighborhood not all frames are equally evidential. Training combines:
 \begin{enumerate}[leftmargin=*]
     \item a global branch that preserves stable interval-level video-text alignment; and
     \item a selected branch that emphasizes text-relevant evidence inside the expanded temporal neighborhood.
@@ -51,11 +52,11 @@ Let the visual encoder produce frame tokens
 \begin{equation}
 \{h_1, \ldots, h_M\} = E_v(c_{\mathrm{exp}}),
 \end{equation}
-and let the text encoder produce token-level hidden states and a pooled global text representation
+and let the text encoder produce token-level hidden states together with the pooled text feature
 \begin{equation}
-\{w_1, \ldots, w_L\}, \quad t = E_t(y).
+\{w_1, \ldots, w_L\}, \quad u = E_t(y).
 \end{equation}
-The global text embedding $t$ is still used by the contrastive objective. The selected branch instead uses token-level text states to construct local temporal evidence inside the expanded window.
+The projected global text embedding $t = \operatorname{norm}(P_t(u))$ is still used by the contrastive objective. The selected branch instead uses token-level text states to construct local temporal evidence inside the expanded window.
 
 We first build a text query by mean-pooling the valid token states and applying a lightweight projection:
 \begin{equation}
@@ -92,7 +93,7 @@ z_{\mathrm{sel}} = \sum_{j=1}^{M} \alpha_j h_j, \qquad
 v_{\mathrm{sel}} = \operatorname{norm}(P_v(z_{\mathrm{sel}})).
 \end{equation}
 
-The selected branch is a denoised auxiliary view of the same weak pair. The global branch still provides stable clip-level supervision, while the selected branch teaches the model to recover text-relevant temporal evidence from imprecise positives.
+The selected branch can be viewed as a denoised auxiliary view of the same weak pair. The global branch still provides stable clip-level supervision, while the selected branch teaches the model to recover text-relevant temporal evidence from imprecise positives.
 
 \subsection{Hierarchical Consistency Across Adjacent Levels}
 \label{sec:method_consistency}
