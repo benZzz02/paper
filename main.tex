@@ -1,42 +1,37 @@
-\documentclass[11pt]{article}
+\documentclass[journal]{IEEEtran}
 
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage{geometry}
-\geometry{margin=1in}
-
+\usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{bm}
 \usepackage{graphicx}
-\usepackage{xcolor}
+\usepackage{adjustbox}
 \usepackage{booktabs}
 \usepackage{multirow}
 \usepackage{array}
-\usepackage{caption}
-\usepackage{subcaption}
-\usepackage{enumitem}
 \usepackage{hyperref}
-\usepackage[numbers,sort&compress]{natbib}
+\usepackage{textcomp}
 
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue!50!black,
-    citecolor=blue!50!black,
-    urlcolor=blue!50!black
-}
+\hypersetup{hidelinks}
 
-\title{SurgAlign: Learning from Temporally Misaligned\\Weak Surgical Video-Text Pairs}
-\author{}
-\date{}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\markboth{IEEE Transactions on Medical Imaging}%
+{Anonymous Author(s): SurgAlign}
+
+\title{SurgAlign: Learning from Temporally Misaligned Weak Surgical Video-Text Pairs}
+\author{Anonymous Author(s)}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-Weak video-text pairs from narrations or coarse temporal notes are attractive for scalable video-language pretraining, but they are also temporally imprecise. In surgical video, this problem is especially acute: a paired description can be semantically correct for an interval while the frames that visually justify it occupy only a short subsegment embedded in repetitive procedural context. Standard CLIP-style training ignores this structure and treats frames sampled from the weak interval as uniformly positive for the paired text. We present \textbf{SurgAlign}, a training-time framework that treats each weak interval as a noisy temporal anchor, expands it locally, and uses the paired text to softly reweight candidate frames while preserving a standard global branch and unchanged test-time inference. In matched zero-shot surgical evaluation, SurgAlign improves a matched baseline on several evidence-sensitive benchmarks, with the clearest gain on GraSP Step ($+5.43$ Acc / $+5.27$ F1), suggesting that better positive-pair construction matters when weak video-text alignment is locally noisy.
+Large-scale video-language pretraining often relies on weakly aligned video-text pairs whose timestamps are only approximate. In surgical video, this mismatch is especially severe: a caption may be correct for a coarse interval even though the frames that visually justify it occupy only a brief moment within repetitive procedural context. Standard CLIP-style training pools sampled frames from the weak interval into one positive clip, which mixes supportive and non-supportive content. We propose \textbf{SurgAlign}, a training-time method that treats each weak interval as a noisy temporal anchor, expands it into a small local window, and uses the paired text to softly weight candidate frames while keeping inference unchanged. Under a matched surgical-domain protocol with fixed data, encoders, and optimization, SurgAlign improves a matched baseline on several zero-shot benchmarks, with the largest gain on the evidence-sensitive GraSP Step task ($+5.43$ Acc / $+5.27$ F1). The results show that under weak temporal supervision, better construction of positive video-text pairs can materially improve zero-shot surgical understanding.
 \end{abstract}
+
+\begin{IEEEkeywords}
+Contrastive learning, surgical video understanding, temporal misalignment, video-language pretraining, weak supervision.
+\end{IEEEkeywords}
 
 \input{introduction}
 
@@ -50,7 +45,7 @@ Weak video-text pairs from narrations or coarse temporal notes are attractive fo
 
 \input{conclusion}
 
-\bibliographystyle{unsrtnat}
+\bibliographystyle{IEEEtran}
 \bibliography{related_work_refs}
 
 \end{document}
