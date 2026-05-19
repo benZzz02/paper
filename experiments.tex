@@ -4,138 +4,126 @@
 \subsection{Experimental Setup}
 \label{sec:exp_data}
 
-We evaluate SurgAlign in a matched surgical-domain setting designed to isolate the effect of positive-pair construction. The primary comparison is against a \emph{matched baseline} with identical visual and text backbones, temporal head, frame budget, optimizer, contrastive objective, and downstream evaluation scripts. The matched baseline samples frames from the original weak interval and aggregates them with the standard global head. SurgAlign keeps that same backbone stack but changes the training signal: it expands the weak interval into a local window and adds a text-guided weighted branch on top of the same candidate clip.
+We evaluate SurgAlign with a fixed-epoch protocol designed to isolate the effect of weak-positive construction. The primary comparison is an \emph{internal matched baseline}: the same weak pretraining corpus, visual and text encoder families, temporal head, projection heads, frame budget, optimizer, epoch budget, and zero-shot evaluation scripts are used for both the baseline and SurgAlign. The baseline samples frames from the original weak interval and trains with the standard global CLIP-style objective. SurgAlign changes only the training rule for the weak positive pair by expanding the local window and adding the text-guided evidence branch described in Section~\ref{sec:method}.
 
-Concretely, the visual backbone is ConvNeXt-Large initialized from LemonFM, followed by a TimeSformer-style temporal head that maps frame features from $1536$ to $768$ dimensions and applies two temporal blocks before projection to a shared $256$-dimensional space. On the text side, SurgicBERTa produces token-level states and pooled features that are projected to the same $256$-dimensional space. Most of the visual and text encoders remain frozen: we unfreeze only the final ConvNeXt stage and output LayerNorm, together with the last two text transformer layers. Training uses 2 GPUs under DDP, per-GPU batch size 128, 8 sampled frames, image resolution 224, maximum text length 256, AdamW with learning rate $10^{-4}$ and weight decay $0.02$, window expansion ratio $1.5$, auxiliary loss weight $0.7$, and cross-level consistency weight $0.1$.
+The official checkpoint is fixed at epoch 50 for every method variant. We do not select checkpoints using downstream test performance. Each main condition is run with three random seeds and reported as mean $\pm$ standard deviation. Following the SurgCLIP/SurgLaVi evaluation convention~\cite{surglavi2025}, for phase, step, and action tasks we report Acc/F1 and treat F1 as the primary metric; for tool and triplet tasks we report mAP as the primary metric.
 
-The weak pretraining corpus is exactly the same one used by the matched baseline. Each training record provides a video identifier, a weak temporal interval, a paired caption, and, when available, a granularity label $\ell \in \{f,m,c\}$ for fine, mid, or coarse supervision. We instantiate these caption levels as separate samples rather than fusing them into a multi-text target. Mixed-level batches are formed by concatenation with a fixed ratio of $80/32/16$ for fine/mid/coarse samples. The cross-level term is applied only when same-video nested tuples are present in a batch; otherwise samples contribute only the global and weighted losses.
-
-Our downstream evaluation follows the standard zero-shot surgical recognition setup and covers phase, step, action, tool, and triplet prediction. We report Acc/F1 for phase, step, and action tasks, and mAP for tool and triplet tasks. For the three SurgCLIP-family lines, the downstream label sets and evaluation scripts are kept fixed; the broader external baselines are included as reported reference numbers from their original papers. Unless noted otherwise, all SurgAlign analyses use one fixed pretrained checkpoint rather than retuning per downstream task. This task diversity is important because it reveals whether the method helps most on tasks that depend on fine-grained temporal cues rather than only broad workflow context.
-
-The experiments address four points: overall matched performance, task-dependent gains, actual use of the expanded window, and component-wise attribution. We also report full SurgCLIP as a stronger reference point, but that comparison is interpreted separately because it changes more than the proposed training rule.
-
-\subsection{Matched Comparison Under Fixed Encoders}
-\label{sec:exp_main}
-
-Table~\ref{tab:main_benchmark_comparison} reports the primary zero-shot comparison against representative surgical VLP baselines. The key reference points are SurgCLIP-$\beta$, which is the matched baseline without the proposed training rule, and full SurgCLIP, which is a stronger reference that changes more than the proposed training rule. The broader baseline set is included as reported reference numbers from prior papers to place the matched comparison in the wider landscape of surgical-domain zero-shot transfer.
+To test whether SurgAlign depends on surgical-domain initialization, we run a $2\times2$ initialization-control experiment. The surgical-initialization setting uses ConvNeXt-Large initialized from LemonFM and SurgicBERTa as the text encoder. The generic-initialization setting keeps the same model structure but removes surgical pretraining priors by using ConvNeXt-Large ImageNet initialization and \texttt{bert-base-uncased}. All other training and evaluation details are held fixed. SurgCLIP-$\beta$ and full SurgCLIP are included only as reported strong references, not as internal matched baselines.
 
 \begin{table*}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.05}
-\caption{Primary zero-shot comparison against representative surgical VLP baselines in the surgical-domain setting. Values are reported as Acc/F1 for phase, step, and action tasks, and mAP for triplet/tool tasks.}
-\label{tab:main_benchmark_comparison}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{Closed-loop main experiment design. The causal claim is tested by comparing Baseline and SurgAlign within the same initialization setting. The generic setting removes surgical-domain initialization while preserving the architecture and training protocol.}
+\label{tab:main_2x2_design}
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{@{}lllcccccccc@{}}
+\begin{tabular}{@{}lllll@{}}
 \toprule
-Recognition Task & Dataset & Metric & CLIP & MedSigLIP & SurgVLP & HecVL & PeskaVLP & SurgCLIP($\beta$) & SurgCLIP & Ours \\
+Condition & Visual initialization & Text initialization & SurgAlign components & Role \\
 \midrule
-\multirow{12}{*}{Phase}
-& \multirow{2}{*}{Cholec80} & Acc & $27.81\pm10.4$ & $40.94\pm1.14$ & $49.02\pm10.6$ & $47.50\pm11.0$ & $51.43\pm11.01$ & $57.98\pm5.25$ & $61.29\pm10.7$ & 62.73 \\
-&  & F1 & $8.42\pm2.81$ & $18.74\pm4.42$ & $32.46\pm6.43$ & $23.89\pm5.53$ & $39.39\pm7.43$ & $39.42\pm5.25$ & $50.53\pm8.83$ & 43.46 \\
-& \multirow{2}{*}{AutoLaparo} & Acc & $8.02\pm3.43$ & $26.54\pm5.39$ & $10.02\pm5.23$ & $38.72\pm7.01$ & $34.94\pm9.06$ & $55.72\pm7.65$ & $69.14\pm5.98$ & 53.47 \\
-&  & F1 & $4.79\pm1.77$ & $10.17\pm3.24$ & $7.19\pm4.15$ & $25.81\pm4.91$ & $28.41\pm7.79$ & $45.95\pm8.10$ & $56.37\pm4.54$ & 48.48 \\
-& \multirow{2}{*}{StrasBypass70} & Acc & $18.52\pm5.99$ & $20.15\pm3.98$ & $26.08\pm6.30$ & $28.59\pm8.52$ & $29.42\pm6.92$ & $31.24\pm6.88$ & $32.37\pm6.30$ & 26.85 \\
-&  & F1 & $3.51\pm1.12$ & $5.54\pm1.15$ & $19.18\pm4.30$ & $23.91\pm6.60$ & $19.64\pm3.97$ & $26.05\pm4.39$ & $30.78\pm5.37$ & 23.87 \\
-& \multirow{2}{*}{HeiChole} & Acc & $19.21\pm5.27$ & $45.36\pm10.7$ & $45.70\pm10.7$ & $29.91\pm12.9$ & $53.33\pm8.47$ & $56.95\pm17.59$ & $63.84\pm15.4$ & 60.42 \\
-&  & F1 & $6.17\pm2.43$ & $17.63\pm3.24$ & $27.04\pm3.92$ & $22.76\pm7.21$ & $36.46\pm4.43$ & $44.00\pm7.68$ & $55.15\pm8.9$ & 47.42 \\
-& \multirow{2}{*}{BernBypass70} & Acc & $20.73\pm9.14$ & $30.73\pm8.13$ & $30.46\pm6.55$ & $32.09\pm8.41$ & $31.48\pm8.60$ & $18.30\pm6.68$ & $23.90\pm6.58$ & 16.56 \\
-&  & F1 & $4.17\pm1.23$ & $6.14\pm1.34$ & $17.48\pm2.93$ & $18.58\pm5.00$ & $17.47\pm5.25$ & $15.06\pm5.54$ & $19.68\pm5.78$ & 13.85 \\
-& \multirow{2}{*}{GraSP} & Acc & $9.93\pm4.79$ & $12.88\pm7.20$ & $11.79\pm2.89$ & $10.99\pm2.99$ & $13.85\pm3.45$ & $34.77\pm8.15$ & $41.49\pm7.87$ & 35.96 \\
-&  & F1 & $2.06\pm0.57$ & $4.84\pm2.30$ & $6.07\pm1.71$ & $6.46\pm2.87$ & $9.86\pm3.14$ & $27.98\pm6.53$ & $34.94\pm7.61$ & 32.29 \\
-\midrule
-\multirow{2}{*}{Step}
-& \multirow{2}{*}{GraSP} & Acc & $3.85\pm2.72$ & $11.53\pm6.63$ & $6.02\pm1.11$ & $1.96\pm1.54$ & $3.65\pm1.85$ & $14.15\pm3.92$ & $26.28\pm7.29$ & 19.58 \\
-&  & F1 & $0.83\pm0.61$ & $1.86\pm1.01$ & $3.22\pm0.25$ & $0.56\pm0.38$ & $2.47\pm0.80$ & $11.14\pm4.16$ & $16.53\pm5.44$ & 16.41 \\
-\midrule
-\multirow{2}{*}{Action}
-& \multirow{2}{*}{SARRARP50} & Acc & $28.8\pm3.85$ & $5.49\pm3.24$ & $17.91\pm2.86$ & $4.67\pm3.09$ & $5.18\pm3.95$ & $13.94\pm8.18$ & $17.42\pm7.08$ & 15.16 \\
-&  & F1 & $6.28\pm1.14$ & $3.17\pm1.75$ & $7.03\pm1.99$ & $3.03\pm2.43$ & $2.68\pm1.87$ & $7.62\pm2.91$ & $7.76\pm2.71$ & 7.67 \\
-\midrule
-Triplet & CholeT50 & mAP & 2.50 & 2.98 & 3.04 & 3.63 & 4.49 & 4.17 & 5.28 & 3.97 \\
-\midrule
-\multirow{3}{*}{Tool}
-& Cholec80 & mAP & 18.44 & 17.92 & 31.19 & 25.11 & 38.88 & 36.77 & 40.80 & 33.39 \\
-& HeiChole & mAP & 21.18 & 20.58 & 22.46 & 19.36 & 32.82 & 31.47 & 36.79 & 29.34 \\
-& GraSP & mAP & 36.00 & 37.18 & 36.93 & 36.75 & 41.05 & 43.06 & 45.97 & 44.22 \\
+Surgical Baseline & LemonFM & SurgicBERTa & disabled & Internal matched baseline under surgical priors \\
+Surgical SurgAlign & LemonFM & SurgicBERTa & enabled & Main method under surgical priors \\
+Generic Baseline & ImageNet ConvNeXt-Large & BERT-base & disabled & Control without surgical pretraining priors \\
+Generic SurgAlign & ImageNet ConvNeXt-Large & BERT-base & enabled & Robustness test without surgical pretraining priors \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \end{table*}
 
-Relative to SurgCLIP-$\beta$, SurgAlign improves several zero-shot benchmarks, including Cholec80 Phase ($+4.75$ Acc / $+4.04$ F1), HeiChole Phase ($+3.47$ Acc / $+3.42$ F1), GraSP Phase ($+1.19$ Acc / $+4.31$ F1), GraSP Step ($+5.43$ Acc / $+5.27$ F1), SARRARP50 Action ($+1.22$ Acc / $+0.05$ F1), and GraSP Tool ($+1.16$ mAP). The largest gain appears on GraSP Step, which is exactly the kind of evidence-sensitive task targeted by the proposed training rule. Overall, the table indicates that when the relevant evidence is short and visually localized, weak interval pairs are better treated as noisy temporal anchors than as uniform positives.
+\subsection{Success Criteria}
+\label{sec:exp_success}
 
-The comparison with full SurgCLIP is more mixed. SurgAlign does not consistently surpass that stronger reference, and broad phase recognition remains challenging on datasets such as StrasBypass70 and BernBypass70. This indicates that better positive construction addresses a real bottleneck in weak surgical VLP, but temporal misalignment is not the only bottleneck.
+The paper is judged primarily by the matched internal comparison rather than by a claim of uniform dominance over reported external systems. SurgAlign is considered successful only if it provides stable gains over the internal baseline while keeping regressions bounded. The SurgCLIP-$\beta$ comparison is used to establish external competitiveness on evidence-sensitive tasks, not to claim that SurgAlign is a stronger overall system than every surgical VLP baseline. This distinction is important because published surgical VLP tables can differ slightly due to prompt templates, preprocessing, available data, dataset splits, checkpoint policy, or evaluation-script details even when they report the same task names and metrics.
 
-\subsection{Where It Helps and Where It Does Not}
-\label{sec:exp_scope}
-
-The pattern of gains is as important as their average magnitude. SurgAlign helps most when the downstream task depends on short local evidence within repetitive context. GraSP Step is the clearest example. The gains on GraSP Phase, Cholec80 Phase, and HeiChole Phase suggest that even phase recognition can benefit when phase boundaries are visually tied to local tool-tissue events. These are exactly the cases where uniform temporal pooling is most likely to dilute the positive signal.
-
-The same table also clarifies the boundary of the method. Gains are not uniform on long-horizon phase benchmarks such as StrasBypass70 and BernBypass70, and they remain mixed on triplet and tool mAP. This pattern is consistent with the inductive bias of SurgAlign: the method helps when the paired text is semantically useful but temporally diluted, and helps less when the dominant challenge is broader workflow context, harder negative discrimination, or factors beyond local frame weighting.
-
-The comparison against full SurgCLIP further sharpens this interpretation. SurgAlign narrows the gap through a better training rule, but does not by itself replace stronger end-to-end system design. The contribution is a better way to consume weak interval-level positives, not a claim that temporal misalignment alone explains all remaining zero-shot errors.
-
-\subsection{Expanded-Window Evidence Analysis}
-\label{sec:exp_evidence}
-
-The next analysis tests whether the expanded local window is actually used rather than serving as a purely formal augmentation. After training, we partition sampled frames into those inside the original weak interval and those in the expanded-only region, then aggregate four statistics: outside-frame fraction, outside weight, outside-weight enrichment relative to the uniform frame fraction, and the rate at which the highest-weight frame falls outside the original interval.
-
-This is a mechanism check, not a new supervision signal. Under weak temporal annotation, an outside frame cannot automatically be treated as ground-truth evidence. The table is therefore not interpreted as localization accuracy. Instead, it quantifies whether SurgAlign functionally uses the expanded local window and whether the assigned frame weight is enriched relative to uniform sampling.
-
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.05}
-\caption{Expanded-window usage analysis. `OutFrac' is the fraction of sampled frames that lie outside the original weak interval but inside the expanded window. `OutWeight' is the total frame weight assigned to those frames. `Enrich' is $\text{OutWeight}/\text{OutFrac}$, where values above $1$ indicate that outside frames receive more weight than uniform sampling would imply. `Top1-Out' is the rate at which the highest-weight frame lies outside the original interval. `Entropy' measures how concentrated the frame weighting is.}
-\label{tab:expanded_window_evidence}
-\begin{adjustbox}{max width=\columnwidth}
-\begin{tabular}{@{}lccccc@{}}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\caption{Predefined success criteria for the final result table. F1 is the primary metric for Acc/F1 tasks, and mAP is the primary metric for tool and triplet tasks.}
+\label{tab:success_criteria}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lp{0.78\textwidth}@{}}
 \toprule
-Level & OutFrac & OutWeight & Enrich & Top1-Out & Entropy \\
+Reference & Required evidence \\
 \midrule
-Fine & TBD & TBD & TBD & TBD & TBD \\
-Mid & TBD & TBD & TBD & TBD & TBD \\
-Coarse & TBD & TBD & TBD & TBD & TBD \\
+Internal matched baseline &
+SurgAlign should improve the primary metric on at least 9 of 12 downstream tasks. Among evidence-sensitive tasks (GraSP Phase, GraSP Step, SARRARP50 Action, CholeT50 Triplet, and GraSP Tool), at least 4 of 5 should improve. GraSP Step should improve by at least $+3$ Acc and $+3$ F1. Tool and triplet tasks should improve by at least $+1$ mAP when they are used as positive evidence. No primary metric should regress by more than $3$ points unless the task is explicitly treated as a failure-boundary case. \\
+\addlinespace
+SurgCLIP-$\beta$ reported reference &
+SurgAlign should exceed SurgCLIP-$\beta$ on at least 4 of the 5 evidence-sensitive tasks and on at least 7 of 12 primary metrics overall. Long-horizon workflow phase tasks may remain below SurgCLIP-$\beta$, but any large regression must be analyzed as a limitation rather than hidden by aggregate reporting. \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\end{table}
+\end{table*}
+
+\subsection{Main Zero-Shot Comparison}
+\label{sec:exp_main}
+
+The main result table will report the three-seed mean and standard deviation for the four internal conditions in Table~\ref{tab:main_2x2_design}. The same table will include reported CLIP, MedSigLIP, SurgVLP, HecVL, PeskaVLP, SurgCLIP-$\beta$, and full SurgCLIP values as external references under the SurgCLIP-style task and metric convention. These reference values are not used to define the internal causal claim because they may differ in data curation, initialization, prompt construction, preprocessing, evaluation scripts, training recipe, or checkpoint policy.
+
+The downstream tasks cover broad workflow recognition and evidence-sensitive recognition: Cholec80, AutoLaparo, StrasBypass70, HeiChole, BernBypass70, and GraSP phase recognition; GraSP step recognition; SARRARP50 action recognition; CholeT50 triplet recognition; and Cholec80, HeiChole, and GraSP tool recognition. We separately analyze these groups because SurgAlign targets local evidence dilution, so the expected gains should be strongest on tasks whose labels are tied to short tool-tissue interactions rather than long-horizon procedure context.
+
+The result registry for every row must record the run identifier, seed, initialization type, method variant, epoch, configuration hash, task, metric, value, and evaluation-script version. Numbers are added to the manuscript only after they can be traced back to this registry.
 
 \subsection{Ablation Study}
 \label{sec:exp_ablation}
 
-The ablation study is conducted in the same primary setting so that the changing factor is the training rule rather than the backbone or data recipe. The goal is to isolate which parts of SurgAlign matter. We therefore add the method components progressively: local window expansion, text-guided frame weighting, the weighted-branch contrastive loss, and cross-level consistency.
-
-This progression separates four questions with minimal confounds: whether simple access to a larger candidate pool is sufficient, whether text-guided frame weighting matters once that pool is available, whether explicit supervision on the weighted branch adds beyond passive reweighting, and whether cross-level consistency stabilizes training when hierarchical captions coexist. To keep the ablation focused on mechanism rather than exhaustively repeating Table~\ref{tab:main_benchmark_comparison}, we report a representative subset that spans evidence-sensitive tasks and broader-context settings.
+The ablation study is designed around reviewer questions rather than around implementation convenience. All ablations use the surgical-initialization setting, fixed epoch 50, the same downstream scripts, and the same reporting convention as the main comparison. The closed ablation isolates two necessary ingredients: expanding the weak interval into a local search window, and reselecting evidence frames with the paired text. \emph{Expand-only} tests whether a larger candidate pool is sufficient by itself, \emph{Reselect-only} tests whether text-guided reweighting helps without temporal expansion, and \emph{Expand+Reselect} combines the two.
 
 \begin{table*}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.05}
-\caption{Ablation study in the primary setting. `+Expand' uses local window expansion without text-guided weighting. `+Weight' adds text-guided frame weighting. `+AuxLoss' adds the weighted-branch contrastive loss. `Full' additionally includes cross-level consistency. Values are reported as Acc/F1 for phase, step, and action tasks, and mAP for triplet/tool tasks.}
-\label{tab:ablation_multitask}
+\setlength{\tabcolsep}{2.4pt}
+\renewcommand{\arraystretch}{1.04}
+\caption{Ablation results at epoch 50. Phase, step, and action values are Acc/F1, and tool/triplet values are mAP. F1 is the primary metric for Acc/F1 tasks.}
+\label{tab:ablation_results}
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{@{}llccccc@{}}
+\begin{tabular}{@{}lccccccc@{}}
 \toprule
-Task & Metric & Baseline & +Expand & +Weight & +AuxLoss & Full \\
+Task & Baseline & Expand-only & Reselect-only & Exp.+Resel. & $\Delta_{\mathrm{E+R}-B}$ & $\Delta_{\mathrm{E+R}-E}$ & $\Delta_{\mathrm{E+R}-R}$ \\
 \midrule
-Cholec80 Phase & Acc/F1 & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD \\
-HeiChole Phase & Acc/F1 & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD \\
-GraSP Phase & Acc/F1 & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD \\
-GraSP Step & Acc/F1 & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD \\
-SARRARP50 Action & Acc/F1 & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD & TBD/TBD \\
-CholeT50 Triplet & mAP & TBD & TBD & TBD & TBD & TBD \\
-GraSP Tool & mAP & TBD & TBD & TBD & TBD & TBD \\
+Cholec80 Phase & 51.05/36.59 & 53.06/33.68 & 48.53/31.94 & \textbf{62.73/43.46} & +11.68/+6.87 & +9.67/+9.78 & +14.20/+11.52 \\
+AutoLaparo Phase & 45.09/44.72 & \textbf{58.67/54.42} & 54.60/43.10 & 53.47/48.48 & +8.38/+3.76 & -5.20/-5.94 & -1.13/+5.38 \\
+StrasBypass70 Phase & 22.23/21.61 & 24.23/23.29 & 27.05/21.35 & \textbf{26.85/23.87} & +4.62/+2.26 & +2.62/+0.58 & -0.20/+2.52 \\
+HeiChole Phase & 56.16/40.14 & 52.19/34.59 & 51.47/34.79 & \textbf{60.42/47.42} & +4.26/+7.28 & +8.23/+12.83 & +8.95/+12.63 \\
+BernBypass70 Phase & 13.27/13.81 & \textbf{14.74/14.54} & 17.55/13.97 & 16.56/13.85 & +3.29/+0.04 & +1.82/-0.69 & -0.99/-0.12 \\
+GraSP Phase & 33.73/30.20 & 33.69/31.64 & 34.72/26.21 & \textbf{35.96/32.29} & +2.23/+2.09 & +2.27/+0.65 & +1.24/+6.08 \\
+GraSP Step & 19.72/15.30 & 14.33/10.70 & 13.87/10.43 & \textbf{19.58/16.41} & -0.14/+1.11 & +5.25/+5.71 & +5.71/+5.98 \\
+SARRARP50 Action & 10.86/4.68 & 4.94/5.16 & 10.29/4.28 & \textbf{15.16/7.67} & +4.30/+2.99 & +10.22/+2.51 & +4.87/+3.39 \\
+CholeT50 Triplet & 4.04 & \textbf{4.18} & 3.78 & 3.97 & -0.07 & -0.21 & +0.19 \\
+Cholec80 Tool & 32.29 & 31.96 & \textbf{33.80} & 33.39 & +1.10 & +1.43 & -0.41 \\
+HeiChole Tool & 31.20 & \textbf{33.37} & 32.97 & 29.34 & -1.86 & -4.03 & -3.63 \\
+GraSP Tool & 45.73 & 38.59 & \textbf{47.83} & 44.22 & -1.51 & +5.63 & -3.61 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \end{table*}
 
+Table~\ref{tab:ablation_results} shows that Expand+Reselect improves the primary metric over the baseline on 9 of 12 tasks. For all eight Acc/F1 tasks, Expand+Reselect improves F1 over the baseline, with large gains on Cholec80 Phase, HeiChole Phase, AutoLaparo Phase, and SARRARP50 Action. The comparison against the single-factor variants shows why the components need to be combined: Expand+Reselect outperforms both Expand-only and Reselect-only on six of the eight Acc/F1 tasks, and the largest interaction effects appear on Cholec80 Phase, HeiChole Phase, GraSP Step, and SARRARP50 Action. These are the settings where merely expanding the window or merely reselecting frames can be unstable, but their combination provides a cleaner positive signal.
+
+The mAP tasks are more mixed. Expand+Reselect improves Cholec80 Tool over the baseline, but it does not improve CholeT50 Triplet, HeiChole Tool, or GraSP Tool. This pattern defines an important boundary of the current method: the training-time evidence refinement is most reliable for phase, step, and action recognition, while tool/triplet retrieval may require stronger negative discrimination or a different downstream calibration strategy.
+
+\subsection{Expanded-Window Evidence Analysis}
+\label{sec:exp_evidence}
+
+The mechanism analysis tests whether the expanded local window is actually used rather than serving as a formal augmentation. After training, we partition sampled frames into those inside the original weak interval and those in the expanded-only region, then aggregate five statistics:
+\begin{itemize}
+    \item OutFrac: the fraction of sampled frames outside the original weak interval but inside the expanded window;
+    \item OutWeight: the total evidence weight assigned to those outside frames;
+    \item Enrich: $\mathrm{OutWeight}/\mathrm{OutFrac}$, where values above $1$ indicate higher-than-uniform use of expanded-window frames;
+    \item Top1-Out: the rate at which the highest-weight frame lies outside the original weak interval; and
+    \item Entropy: the concentration of the learned frame-weight distribution.
+\end{itemize}
+This analysis is not interpreted as temporal localization accuracy because the weak timestamps do not provide frame-level ground truth. It is a functional check that SurgAlign uses the expanded candidate window and assigns non-uniform evidence weights rather than simply adding frames uniformly.
+
 \subsection{Qualitative Visualization}
 \label{sec:exp_qualitative}
 
-We visualize representative frame-weight patterns to inspect whether the weighted branch behaves consistently with the proposed weak-positive construction mechanism. Each case includes the original weak interval, the expanded local window, the sampled frames, the learned frame weights, and the paired caption. The most informative set contains both successful and failure cases, as well as examples in which the highest-weight frame lies outside the original weak interval.
+We visualize six representative cases: two successful cases, two failure cases, and two cases in which the highest-weight frame lies outside the original weak interval. Each visualization should include the original weak interval, the expanded local window, sampled frames, frame weights, paired caption, and downstream prediction. The qualitative section is used to explain mechanism and limitations, not to replace the quantitative ablation.
+
+\subsection{Reporting Rules}
+\label{sec:exp_reporting}
+
+The manuscript reports only fixed-epoch, three-seed aggregates for the official main comparison. If the internal baseline criteria in Table~\ref{tab:success_criteria} are met but the SurgCLIP-$\beta$ reference criteria are not, the paper remains a valid mechanism paper but the title, abstract, and conclusion should emphasize matched weak-positive construction rather than competitive SOTA. If the internal baseline criteria are not met, the experiment does not support the current CVPR submission framing and the method or training stability must be revisited before submission.

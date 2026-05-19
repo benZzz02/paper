@@ -1,0 +1,5 @@
+method_variant,official_epoch,window,evidence_branch,frame_weights,hierarchy_use,purpose
+baseline,50,original,off,none,none,Standard weak interval training
+expand_only,50,expanded,off,none,none,Tests whether a larger candidate pool alone helps
+reselect_only,50,original,on,text_guided,shared_temperature,Tests text-guided evidence re-selection without window expansion
+full,50,expanded,on,text_guided,full_hierarchy,Final SurgAlign combining expansion and re-selection

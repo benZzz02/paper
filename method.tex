@@ -1,16 +1,16 @@
 \section{Method}
 \label{sec:method}
 
-SurgAlign is a training-time refinement for weak surgical VLP. It leaves the dual-encoder backbone and the test-time pipeline unchanged, and only changes how a positive video-text pair is formed during pretraining. The key observation is simple: a weak interval can be semantically correct even when only a few of its frames visually support the paired text. SurgAlign therefore does not treat all frames in the weak interval as equally positive. Instead, it expands the interval into a local window, builds a weighted clip inside that window, and, when hierarchical captions are available, adds a light consistency term across nearby levels.
+SurgAlign is a training-time refinement for weak surgical VLP. It leaves the dual-encoder backbone and the test-time pipeline unchanged, and only changes how a positive video-text pair is formed during pretraining. The key observation is simple: a weak interval can be semantically correct even when only a few of its frames visually support the paired text. SurgAlign therefore does not treat all frames in the weak interval as equally positive. Instead, it expands the interval into a local candidate window and builds a text-guided evidence view inside that window.
 
 \subsection{Preliminaries}
 \label{sec:method_setup}
 
 Each training sample is written as
 \begin{equation}
-(V, [t_s, t_e], y, \ell),
+(V, [t_s, t_e], y),
 \end{equation}
-where $V$ is a surgical video, $[t_s, t_e]$ is the weak temporal interval, $y$ is the paired text, and $\ell \in \{f, m, c\}$ denotes the fine, mid, or coarse annotation level. In a standard CLIP-style baseline, $M$ frames are sampled from $[t_s, t_e]$, encoded by a visual backbone $E_v$, aggregated into one clip representation, and aligned with a text representation produced by a text encoder $E_t$. If $A_v(\cdot)$ is the temporal aggregation head and $P_v(\cdot), P_t(\cdot)$ are the projection heads, the baseline computes
+where $V$ is a surgical video, $[t_s, t_e]$ is the weak temporal interval, and $y$ is the paired text. In a standard CLIP-style baseline, $M$ frames are sampled from $[t_s, t_e]$, encoded by a visual backbone $E_v$, aggregated into one clip representation, and aligned with a text representation produced by a text encoder $E_t$. If $A_v(\cdot)$ is the temporal aggregation head and $P_v(\cdot), P_t(\cdot)$ are the projection heads, the baseline computes
 \begin{equation}
 \begin{aligned}
 v_{\mathrm{glob}} &= \operatorname{norm}\!\left(P_v(A_v(E_v(c)))\right),\\
@@ -30,14 +30,14 @@ SurgAlign has two training branches. Starting from a weak interval, we first sam
     \item a global branch that preserves stable interval-level video-text alignment; and
     \item a weighted branch that emphasizes text-relevant frames inside the expanded local window.
 \end{enumerate}
-When fine, mid, and coarse annotations from the same video co-occur, SurgAlign can additionally regularize nearby levels for compatibility. This term is optional and is used only in that setting. All extra components are training-time only.
+All extra components are training-time only.
 
 Figure~\ref{fig:method_overview} summarizes the pipeline. Query-conditioned frame weighting appears only in the auxiliary weighted branch during training, while inference remains unchanged from a standard CLIP-style model.
 
 \begin{figure*}[t]
     \centering
-    \includegraphics[width=0.95\textwidth]{method_figure.png}
-    \caption{Overview of SurgAlign. Starting from a weak interval and paired text, SurgAlign expands the interval into a local window, samples candidate frames from that window, computes text-guided frame weights, and aggregates a weighted local clip representation. Training jointly optimizes the standard global branch and the weighted branch, with optional cross-level consistency across annotation granularities. All misalignment-aware components are training-time only; test-time inference remains unchanged.}
+    \includegraphics[width=0.95\textwidth]{method_figure_gemini_idea_v10_generated.png}
+    \caption{Overview of SurgAlign. A weak timestamp and paired caption first define a noisy temporal anchor. SurgAlign expands the anchor into a local candidate window, uses the text to highlight visually supporting frames, and trains with both a global view and an evidence-focused view. The refinement is used only during pretraining; inference uses the standard video/text encoders unchanged.}
     \label{fig:method_overview}
 \end{figure*}
 
@@ -83,47 +83,17 @@ and matched with the text query through cosine similarity:
 s_j = q^\top \tilde{h}_j.
 \end{equation}
 
-To inject temporal granularity without introducing separate heads, we use the annotation level $\ell$ only to control \emph{how sharp} the frame weighting should be. Fine-level captions typically describe narrower events, whereas mid/coarse captions tend to summarize broader context. We therefore use a level-specific weighting temperature
-\begin{equation}
-\tau_{\mathrm{evi}}^{(\ell)} =
-\begin{cases}
-\tau_f, & \ell = f,\\
-\tau_m, & \ell = m,\\
-\tau_c, & \ell = c,
-\end{cases}
-\end{equation}
-with $\tau_f < \tau_m < \tau_c$, so fine captions induce sharper weighting and broader captions allow smoother weighting.
-
 The frame weights are then computed as
 \begin{equation}
-\alpha_j = \operatorname{softmax}_{j}\left(\frac{s_j}{\tau_{\mathrm{evi}}^{(\ell)}}\right),
+\alpha_j = \operatorname{softmax}_{j}\left(\frac{s_j}{\tau_{\mathrm{evi}}}\right),
 \end{equation}
-and the weighted clip representation is obtained by weighted aggregation,
+where $\tau_{\mathrm{evi}}$ controls the sharpness of evidence selection. The weighted clip representation is obtained by weighted aggregation,
 \begin{equation}
 z_{\mathrm{evi}} = \sum_{j=1}^{M} \alpha_j h_j, \qquad
 v_{\mathrm{evi}} = \operatorname{norm}(P_v(z_{\mathrm{evi}})).
 \end{equation}
 
 The weighted branch can be viewed as a denoised auxiliary view of the same weak pair. The global branch still provides stable clip-level supervision, while the weighted branch teaches the model to focus on the frames that best support the text.
-
-\subsection{Cross-Level Consistency}
-\label{sec:method_consistency}
-
-When fine, mid, and coarse samples from the same video are jointly observed during training, their weighted representations should remain compatible rather than drift independently in the embedding space. We therefore construct mixed-level batches and, when same-video nested intervals are available, include triplets satisfying
-\begin{equation}
-[t_s^{f}, t_e^{f}] \subseteq [t_s^{m}, t_e^{m}] \subseteq [t_s^{c}, t_e^{c}].
-\end{equation}
-For the available triplets $\mathcal{T}$ in a batch, we apply a cross-level consistency loss
-\begin{equation}
-\mathcal{L}_{\mathrm{hier}} =
-\frac{1}{|\mathcal{T}|}
-\sum_{(f,m,c)\in \mathcal{T}}
-\Big[
-1 - \operatorname{cos}(v_{\mathrm{evi}}^f, v_{\mathrm{evi}}^m) +
-1 - \operatorname{cos}(v_{\mathrm{evi}}^m, v_{\mathrm{evi}}^c)
-\Big].
-\end{equation}
-We regularize only adjacent levels, not all pairs, because the goal is not to collapse all temporal scopes into a single representation. The role of this term is simply to discourage incompatible local evidence across nested supervision.
 
 \subsection{Training Objective and Inference}
 \label{sec:method_objective}
@@ -147,15 +117,14 @@ The final objective is
 \begin{equation}
 \mathcal{L} =
 \mathcal{L}_{\mathrm{glob}}
- + \lambda_{\mathrm{evi}} \mathcal{L}_{\mathrm{evi}}
- + \lambda_{\mathrm{hier}} \mathcal{L}_{\mathrm{hier}}.
+ + \lambda_{\mathrm{evi}} \mathcal{L}_{\mathrm{evi}}.
 \end{equation}
 
-Here, $\mathcal{L}_{\mathrm{glob}}$ preserves stable clip-level alignment, $\mathcal{L}_{\mathrm{evi}}$ teaches the model to focus on text-relevant frames, and $\mathcal{L}_{\mathrm{hier}}$ stabilizes the weighted branch across neighboring annotation granularities.
+Here, $\mathcal{L}_{\mathrm{glob}}$ preserves stable clip-level alignment, while $\mathcal{L}_{\mathrm{evi}}$ teaches the model to focus on text-relevant frames inside the expanded candidate window.
 
 At inference time, SurgAlign falls back to standard CLIP-style encoding:
 \begin{equation}
 v = \operatorname{encode\_image}(c), \qquad
 t = \operatorname{encode\_text}(y),
 \end{equation}
-followed by cosine similarity in the shared embedding space. No local window expansion, frame weighting, or cross-level consistency term is required at test time. SurgAlign is therefore a method for improving weak supervision during pretraining, not a query-conditioned inference system.
+followed by cosine similarity in the shared embedding space. No local window expansion or frame weighting is required at test time. SurgAlign is therefore a method for improving weak supervision during pretraining, not a query-conditioned inference system.

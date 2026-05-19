@@ -1,0 +1,13 @@
+run_family,seed,init_type,method_variant,official_epoch,visual_init,text_init,surgalign_enabled,notes
+surgical_baseline,1,surgical,baseline,50,LemonFM,SurgicBERTa,false,Internal matched baseline under surgical priors
+surgical_baseline,2,surgical,baseline,50,LemonFM,SurgicBERTa,false,Internal matched baseline under surgical priors
+surgical_baseline,3,surgical,baseline,50,LemonFM,SurgicBERTa,false,Internal matched baseline under surgical priors
+surgical_surgalign,1,surgical,full,50,LemonFM,SurgicBERTa,true,Main SurgAlign under surgical priors
+surgical_surgalign,2,surgical,full,50,LemonFM,SurgicBERTa,true,Main SurgAlign under surgical priors
+surgical_surgalign,3,surgical,full,50,LemonFM,SurgicBERTa,true,Main SurgAlign under surgical priors
+generic_baseline,1,generic,baseline,50,ImageNet ConvNeXt-Large,bert-base-uncased,false,Internal matched baseline without surgical priors
+generic_baseline,2,generic,baseline,50,ImageNet ConvNeXt-Large,bert-base-uncased,false,Internal matched baseline without surgical priors
+generic_baseline,3,generic,baseline,50,ImageNet ConvNeXt-Large,bert-base-uncased,false,Internal matched baseline without surgical priors
+generic_surgalign,1,generic,full,50,ImageNet ConvNeXt-Large,bert-base-uncased,true,SurgAlign without surgical priors
+generic_surgalign,2,generic,full,50,ImageNet ConvNeXt-Large,bert-base-uncased,true,SurgAlign without surgical priors
+generic_surgalign,3,generic,full,50,ImageNet ConvNeXt-Large,bert-base-uncased,true,SurgAlign without surgical priors
